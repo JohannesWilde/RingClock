@@ -5,7 +5,7 @@ namespace NeoPixelPatterns
 
 double brightnessFunctionMountain(const double x)
 {
-    double constexpr halfWidthHalfMaximum = .25;
+    double constexpr halfWidthHalfMaximum = .01;
     double constexpr halfWidthHalfMaximumSqrt = sqrt(halfWidthHalfMaximum);
     double constexpr normalization = 2. * atan(1./(2 * halfWidthHalfMaximumSqrt));
     return atan(x/halfWidthHalfMaximumSqrt) / normalization;

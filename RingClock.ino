@@ -15,7 +15,7 @@ int constexpr powerRtc = A0;
 }
 
 uint16_t constexpr ledCount = 12;
-uint8_t constexpr defaultMaxBrightness = 40;
+uint8_t constexpr defaultMaxBrightness = 200;
 
 
 DS3231 myRTC;
