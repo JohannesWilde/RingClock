@@ -1,7 +1,5 @@
 #include "Colors.hpp"
 
-#include <Adafruit_NeoPixel.h>
-
 namespace // anonymous namespace
 {
 	

@@ -3,6 +3,7 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 */
 
 #include "Colors.hpp"
+#include "NeoPixelPatterns.hpp"
 
 #include <Adafruit_NeoPixel.h>
 #include <DS3231.h>
@@ -62,7 +63,8 @@ void loop()
   // Get hour, minute, and second.
   bool h12Flag = false;
   bool pmFlag = false;
-  Serial.print(myRTC.getHour(h12Flag, pmFlag), DEC);
+  uint8_t const hours = myRTC.getHour(h12Flag, pmFlag);
+  Serial.print(hours, DEC);
   Serial.print(" ");
   uint8_t const minutes = myRTC.getMinute();
   Serial.print(minutes, DEC);
@@ -87,12 +89,22 @@ void loop()
   
   strip.clear();
 
-  uint16_t const pixelIndexSeconds = seconds % 12;
-  strip.setPixelColor(pixelIndexSeconds, Colors::Red);
-  
-  uint16_t const pixelIndexMinutes = minutes % 12;
-  strip.setPixelColor(pixelIndexMinutes, Colors::addColors(Colors::Green, strip.getPixelColor(pixelIndexMinutes)));
-  
+
+  uint16_t const pixelIndexHours = hours % 12;
+  strip.setPixelColor(pixelIndexHours, Colors::addColors(Colors::Blue, strip.getPixelColor(pixelIndexHours)));
+
+  double const pixelIndexMinutes = static_cast<double>(minutes) / 60. * ledCount;
+  NeoPixelPatterns::addColorsWrapping(strip,
+					   pixelIndexMinutes,
+					   NeoPixelPatterns::brightnessFunctionMountain,
+					   Colors::Green);
+
+  double const pixelIndexSeconds = static_cast<double>(seconds) / 60. * ledCount;
+  NeoPixelPatterns::addColorsWrapping(strip,
+					   pixelIndexSeconds,
+					   NeoPixelPatterns::brightnessFunctionMountain,
+					   Colors::Red);
+ 
   // for(int i=0; i < strip.numPixels(); ++i)
 
 
