@@ -47,6 +47,14 @@ void setup() {
   strip.show();            // Turn OFF all pixels ASAP
   strip.setBrightness(defaultMaxBrightness);
 
+  // myRTC.setSecond(0);
+  // myRTC.setMinute(32);
+  // myRTC.setHour(17);
+  // myRTC.setDoW(7);
+  // myRTC.setDate(9);
+  // myRTC.setMonth(6);
+  // myRTC.setYear(24);
+
   // Start the serial interface
   Serial.begin(57600);
 }
