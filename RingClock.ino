@@ -52,6 +52,9 @@ void setup() {
 }
 
 
+static uint8_t previousSeconds = 255; // invalid
+static unsigned long lastSecondChangeTime = 0;
+
 void loop() 
 {
   // Get hour, minute, and second.
@@ -61,26 +64,40 @@ void loop()
   uint8_t const minutes = myRTC.getMinute();
   uint8_t const seconds = myRTC.getSecond();
 
+  // simulate subseconds
+  double secondsAndSubseconds = static_cast<double>(seconds);
+  if (previousSeconds != seconds)
+  {
+    // seconds changed -> reset subseconds to 0
+    lastSecondChangeTime = millis();
+    previousSeconds = seconds;
+  }
+  else
+  {
+    // simulate via millis()
+    secondsAndSubseconds += static_cast<double>(millis() - lastSecondChangeTime) / 1000.;
+  }
+
   // Create color representation.
   strip.clear();
 
   uint16_t const pixelIndexHours = hours % 12;
   strip.setPixelColor(pixelIndexHours, Colors::addColors(Colors::Blue, strip.getPixelColor(pixelIndexHours)));
 
-  double const pixelIndexMinutes = static_cast<double>(minutes) / 60. * ledCount;
+  double const pixelIndexMinutes = (static_cast<double>(minutes) + (secondsAndSubseconds / 60.)) / 60. * ledCount;
   NeoPixelPatterns::addColorsWrapping(strip,
 					   pixelIndexMinutes,
 					   NeoPixelPatterns::brightnessFunctionMountain,
 					   Colors::Green);
 
-  double const pixelIndexSeconds = static_cast<double>(seconds) / 60. * ledCount;
+  double const pixelIndexSeconds = secondsAndSubseconds / 60. * ledCount;
   NeoPixelPatterns::addColorsWrapping(strip,
 					   pixelIndexSeconds,
 					   NeoPixelPatterns::brightnessFunctionMountain,
 					   Colors::Red);
 
   strip.show();                          //  Update strip to match
-
+ 
 
   // send what's going on to the serial monitor.
   Serial.print(hours, DEC);
@@ -105,5 +122,5 @@ void loop()
   // Serial.print(myRTC.getTemperature(), 2);
 
   Serial.println();
-  delay(1000);
+  delay(50);
 }
