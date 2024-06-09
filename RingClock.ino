@@ -2,6 +2,8 @@
 Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 */
 
+#include "Colors.hpp"
+
 #include <Adafruit_NeoPixel.h>
 #include <DS3231.h>
 #include <Wire.h>
@@ -62,7 +64,8 @@ void loop()
   bool pmFlag = false;
   Serial.print(myRTC.getHour(h12Flag, pmFlag), DEC);
   Serial.print(" ");
-  Serial.print(myRTC.getMinute(), DEC);
+  uint8_t const minutes = myRTC.getMinute();
+  Serial.print(minutes, DEC);
   Serial.print(" ");
   uint8_t const seconds = myRTC.getSecond();
   Serial.print(seconds, DEC);
@@ -84,9 +87,15 @@ void loop()
   
   strip.clear();
 
-  uint16_t const pixelIndex = seconds % 12;
-  strip.setPixelColor(pixelIndex, strip.Color(/*red*/ 255, /*green*/ 0, /*blue*/ 0, /*white*/ 0));
+  uint16_t const pixelIndexSeconds = seconds % 12;
+  strip.setPixelColor(pixelIndexSeconds, Colors::Red);
+  
+  uint16_t const pixelIndexMinutes = minutes % 12;
+  strip.setPixelColor(pixelIndexMinutes, Colors::addColors(Colors::Green, strip.getPixelColor(pixelIndexMinutes)));
+  
   // for(int i=0; i < strip.numPixels(); ++i)
+
+
   strip.show();                          //  Update strip to match
 
   // New line on display
