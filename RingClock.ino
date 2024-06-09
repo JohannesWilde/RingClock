@@ -51,44 +51,18 @@ void setup() {
   Serial.begin(57600);
 }
 
-uint8_t red = 255;
-uint8_t green = 255;
-uint8_t blue = 255;
-uint8_t white = 255;
 
 void loop() 
 {
-  // send what's going on to the serial monitor.
-
   // Get hour, minute, and second.
   bool h12Flag = false;
   bool pmFlag = false;
   uint8_t const hours = myRTC.getHour(h12Flag, pmFlag);
-  Serial.print(hours, DEC);
-  Serial.print(" ");
   uint8_t const minutes = myRTC.getMinute();
-  Serial.print(minutes, DEC);
-  Serial.print(" ");
   uint8_t const seconds = myRTC.getSecond();
-  Serial.print(seconds, DEC);
 
-  // Add AM/PM indicator
-  if (h12Flag) {
-    if (pmFlag) {
-      Serial.print(" PM ");
-    } else {
-      Serial.print(" AM ");
-    }
-  } else {
-    Serial.print(" 24h ");
-  }
-
-  // // Display the temperature
-  // Serial.print("T=");
-  // Serial.print(myRTC.getTemperature(), 2);
-  
+  // Create color representation.
   strip.clear();
-
 
   uint16_t const pixelIndexHours = hours % 12;
   strip.setPixelColor(pixelIndexHours, Colors::addColors(Colors::Blue, strip.getPixelColor(pixelIndexHours)));
@@ -104,13 +78,32 @@ void loop()
 					   pixelIndexSeconds,
 					   NeoPixelPatterns::brightnessFunctionMountain,
 					   Colors::Red);
- 
-  // for(int i=0; i < strip.numPixels(); ++i)
-
 
   strip.show();                          //  Update strip to match
 
-  // New line on display
+
+  // send what's going on to the serial monitor.
+  Serial.print(hours, DEC);
+  Serial.print(":");
+  Serial.print(minutes, DEC);
+  Serial.print(":");
+  Serial.print(seconds, DEC);
+
+  // // Add AM/PM indicator
+  // if (h12Flag) {
+  //   if (pmFlag) {
+  //     Serial.print(" PM ");
+  //   } else {
+  //     Serial.print(" AM ");
+  //   }
+  // } else {
+  //   Serial.print(" 24h ");
+  // }
+  
+  // // Display the temperature
+  // Serial.print("T=");
+  // Serial.print(myRTC.getTemperature(), 2);
+
   Serial.println();
   delay(1000);
 }
