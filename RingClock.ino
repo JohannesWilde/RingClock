@@ -17,6 +17,7 @@ int constexpr powerRtc = A0;
 uint16_t constexpr ledCount = 12;
 uint8_t constexpr defaultMaxBrightness = 200;
 
+#define PRINT_SERIAL_OUTPUT false
 
 DS3231 myRTC;
 
@@ -55,8 +56,10 @@ void setup() {
   // myRTC.setMonth(6);
   // myRTC.setYear(24);
 
+#if PRINT_SERIAL_OUTPUT
   // Start the serial interface
   Serial.begin(57600);
+#endif
 }
 
 
@@ -107,6 +110,7 @@ void loop()
   strip.show();                          //  Update strip to match
  
 
+#if PRINT_SERIAL_OUTPUT
   // send what's going on to the serial monitor.
   Serial.print(hours, DEC);
   Serial.print(":");
@@ -130,5 +134,7 @@ void loop()
   // Serial.print(myRTC.getTemperature(), 2);
 
   Serial.println();
+#endif
+
   delay(50);
 }
