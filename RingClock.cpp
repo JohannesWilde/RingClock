@@ -9,6 +9,27 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 #include <DS3231.h>
 #include <Wire.h>
 
+struct TimeOfDay
+{
+    uint8_t hours;
+    uint8_t minutes;
+    uint8_t seconds;
+
+    TimeOfDay(uint8_t const hours = 0,
+              uint8_t const minutes = 0,
+              uint8_t const seconds = 0)
+        : hours(hours)
+        , minutes(minutes)
+        , seconds(seconds)
+    {
+        // intentinoally empty
+    }
+    TimeOfDay(const TimeOfDay &) = default;
+    TimeOfDay(TimeOfDay &&) = default;
+    TimeOfDay &operator=(const TimeOfDay &) = default;
+    TimeOfDay &operator=(TimeOfDay &&) = default;
+};
+
 namespace Pins
 {
 int constexpr led = 3;
@@ -72,17 +93,17 @@ void loop()
     // Get hour, minute, and second.
     bool h12Flag = false;
     bool pmFlag = false;
-    uint8_t const hours = myRTC.getHour(h12Flag, pmFlag);
-    uint8_t const minutes = myRTC.getMinute();
-    uint8_t const seconds = myRTC.getSecond();
+    TimeOfDay const timeOfDay(myRTC.getHour(h12Flag, pmFlag),
+                              myRTC.getMinute(),
+                              myRTC.getSecond());
 
     // simulate subseconds
-    double secondsAndSubseconds = static_cast<double>(seconds);
-    if (previousSeconds != seconds)
+    double secondsAndSubseconds = static_cast<double>(timeOfDay.seconds);
+    if (previousSeconds != timeOfDay.seconds)
     {
         // seconds changed -> reset subseconds to 0
         lastSecondChangeTime = millis();
-        previousSeconds = seconds;
+        previousSeconds = timeOfDay.seconds;
     }
     else
     {
@@ -93,10 +114,10 @@ void loop()
     // Create color representation.
     strip.clear();
 
-    uint16_t const pixelIndexHours = hours % 12;
+    uint16_t const pixelIndexHours = timeOfDay.hours % 12;
     strip.setPixelColor(pixelIndexHours, Colors::addColors(Colors::Blue, strip.getPixelColor(pixelIndexHours)));
 
-    double const pixelIndexMinutes = (static_cast<double>(minutes) + (secondsAndSubseconds / 60.)) / 60. * ledCount;
+    double const pixelIndexMinutes = (static_cast<double>(timeOfDay.minutes) + (secondsAndSubseconds / 60.)) / 60. * ledCount;
     NeoPixelPatterns::addColorsWrapping(strip,
                                         pixelIndexMinutes,
                                         NeoPixelPatterns::brightnessFunctionMountain,
@@ -113,11 +134,11 @@ void loop()
 
 #if PRINT_SERIAL_OUTPUT
     // send what's going on to the serial monitor.
-    Serial.print(hours, DEC);
+    Serial.print(timeOfDay.hours, DEC);
     Serial.print(":");
-    Serial.print(minutes, DEC);
+    Serial.print(timeOfDay.minutes, DEC);
     Serial.print(":");
-    Serial.print(seconds, DEC);
+    Serial.print(timeOfDay.seconds, DEC);
 
     // // Add AM/PM indicator
     // if (h12Flag) {
