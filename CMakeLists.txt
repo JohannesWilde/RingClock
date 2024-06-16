@@ -32,3 +32,11 @@ target_compile_definitions(${PROJECT_NAME}
     PRIVATE __AVR_ATmega328P__
     PRIVATE F_CPU=1000000
 )
+
+target_link_libraries(EpaperClockDummy
+    PRIVATE arduinoDrivers
+    PRIVATE helpers
+)
+
+add_subdirectory(ArduinoDrivers)
+add_subdirectory(helpers)

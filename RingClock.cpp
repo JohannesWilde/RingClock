@@ -5,6 +5,14 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 #include "Colors.hpp"
 #include "NeoPixelPatterns.hpp"
 
+#include "ArduinoDrivers/ArduinoUno.hpp"
+#include "ArduinoDrivers/avrpinspecializations.hpp"
+#include "ArduinoDrivers/button.hpp"
+#include "ArduinoDrivers/buttonTimed.hpp"
+#include "ArduinoDrivers/simplePinAvr.hpp"
+
+#include "helpers/tmpLoop.hpp"
+
 #include <Adafruit_NeoPixel.h>
 #include <DS3231.h>
 #include <Wire.h>
@@ -33,13 +41,13 @@ struct TimeOfDay
 namespace Pins
 {
 int constexpr led = 3;
-int constexpr powerRtc = A0;
 }
 
 uint16_t constexpr ledCount = 12;
 uint8_t constexpr defaultMaxBrightness = 200;
 
-#define PRINT_SERIAL_OUTPUT false
+#define PRINT_SERIAL_TIME false
+#define PRINT_SERIAL_BUTTONS true
 
 DS3231 myRTC;
 
@@ -54,10 +62,54 @@ Adafruit_NeoPixel strip(ledCount, Pins::led, NEO_GRBW + NEO_KHZ800);
 //   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
 //   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
 
-void setup() {
+
+uint8_t constexpr cycleDurationMs = 50;
+uint8_t constexpr shortPressCount = 2;
+uint8_t constexpr longPressCount = 10;
+
+typedef ButtonTimed<Button<SimplePinAvrRead<ArduinoUno::D11, AvrInputOutput::InputPullup>, SimplePin::State::Zero>, shortPressCount, longPressCount> ButtonTop;
+typedef ButtonTimed<Button<SimplePinAvrRead<ArduinoUno::D8, AvrInputOutput::InputPullup>, SimplePin::State::Zero>, shortPressCount, longPressCount> ButtonRight;
+typedef ButtonTimed<Button<SimplePinAvrRead<ArduinoUno::D9, AvrInputOutput::InputPullup>, SimplePin::State::Zero>, shortPressCount, longPressCount> ButtonBottom;
+typedef ButtonTimed<Button<SimplePinAvrRead<ArduinoUno::D10, AvrInputOutput::InputPullup>, SimplePin::State::Zero>, shortPressCount, longPressCount> ButtonLeft;
+
+
+template <uint8_t index>
+class Buttons;
+
+template <> class Buttons<0> : public ButtonTop {/* intentionally empty */};
+template <> class Buttons<1> : public ButtonRight {/* intentionally empty */};
+template <> class Buttons<2> : public ButtonBottom {/* intentionally empty */};
+template <> class Buttons<3> : public ButtonLeft {/* intentionally empty */};
+
+typedef AvrPinOutput<ArduinoUno::A0::Register, ArduinoUno::A0::pinNumber> PinPowerRtc;
+
+
+// Wrappers for loops.
+template<uint8_t Index>
+struct WrapperInitialize
+{
+    static void impl()
+    {
+        Buttons<Index>::initialize();
+    }
+};
+
+template<uint8_t Index>
+struct WrapperUpdate
+{
+    static void impl()
+    {
+        Buttons<Index>::update();
+    }
+};
+
+
+void setup()
+{
     // Power for the RTC, as I don't have enough 5V ports on the UNO.
-    pinMode(Pins::powerRtc, OUTPUT);
-    digitalWrite(Pins::powerRtc, HIGH);
+    PinPowerRtc::initialize<AvrInputOutput::PinState::High>();
+
+    Helpers::TMP::Loop<4, WrapperInitialize>::impl();
 
     // Start the I2C interface
     Wire.begin();
@@ -78,7 +130,7 @@ void setup() {
 // myRTC.setMonth(6);
 // myRTC.setYear(24);
 
-#if PRINT_SERIAL_OUTPUT
+#if PRINT_SERIAL_TIME || PRINT_SERIAL_BUTTONS
     // Start the serial interface
     Serial.begin(57600);
 #endif
@@ -90,6 +142,31 @@ static unsigned long lastSecondChangeTime = 0;
 
 void loop() 
 {
+    Helpers::TMP::Loop<4, WrapperUpdate>::impl();
+
+#if PRINT_SERIAL_BUTTONS
+    if (ButtonTop::pressed())
+    {
+        Serial.print("ButtonTop");
+        Serial.println();
+    }
+    if (ButtonRight::pressed())
+    {
+        Serial.print("ButtonRight");
+        Serial.println();
+    }
+    if (ButtonBottom::pressed())
+    {
+        Serial.print("ButtonBottom");
+        Serial.println();
+    }
+    if (ButtonLeft::pressed())
+    {
+        Serial.print("ButtonLeft");
+        Serial.println();
+    }
+#endif
+
     // Get hour, minute, and second.
     bool h12Flag = false;
     bool pmFlag = false;
@@ -132,7 +209,7 @@ void loop()
     strip.show();                          //  Update strip to match
 
 
-#if PRINT_SERIAL_OUTPUT
+#if PRINT_SERIAL_TIME
     // send what's going on to the serial monitor.
     Serial.print(timeOfDay.hours, DEC);
     Serial.print(":");
@@ -158,5 +235,5 @@ void loop()
     Serial.println();
 #endif
 
-    delay(50);
+    delay(cycleDurationMs);
 }
