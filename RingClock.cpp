@@ -38,6 +38,18 @@ struct TimeOfDay
     TimeOfDay &operator=(TimeOfDay &&) = default;
 };
 
+static TimeOfDay getTimeOfDayFromRTC(DS3231 & rtc)
+{
+    // Get hour, minute, and second.
+    bool h12Flag = false;
+    bool pmFlag = false;
+    TimeOfDay const timeOfDay(rtc.getHour(h12Flag, pmFlag),
+                              rtc.getMinute(),
+                              rtc.getSecond());
+
+    return timeOfDay;
+}
+
 namespace Pins
 {
 int constexpr led = 3;
@@ -168,12 +180,8 @@ void loop()
     }
 #endif
 
-    // Get hour, minute, and second.
-    bool h12Flag = false;
-    bool pmFlag = false;
-    TimeOfDay const timeOfDay(myRTC.getHour(h12Flag, pmFlag),
-                              myRTC.getMinute(),
-                              myRTC.getSecond());
+    // Get hour, minutes, and seconds from RTC.
+    TimeOfDay const timeOfDay = getTimeOfDayFromRTC(myRTC);
 
     // simulate subseconds
     double secondsAndSubseconds = static_cast<double>(timeOfDay.seconds);
