@@ -1,0 +1,3 @@
+[submodule "ArduinoDrivers"]
+	path = ArduinoDrivers
+	url = ssh://git@ponder:2289/arduino/ArduinoDrivers.git
