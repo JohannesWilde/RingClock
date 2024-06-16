@@ -50,6 +50,30 @@ static TimeOfDay getTimeOfDayFromRTC(DS3231 & rtc)
     return timeOfDay;
 }
 
+static void showTimeOfDay(Adafruit_NeoPixel & strip, TimeOfDay const & timeOfDay, double subseconds)
+{
+    double const secondsAndSubseconds = static_cast<double>(timeOfDay.seconds) + subseconds;
+
+    strip.clear();
+
+    uint16_t const pixelIndexHours = timeOfDay.hours % 12;
+    strip.setPixelColor(pixelIndexHours, Colors::addColors(Colors::Blue, strip.getPixelColor(pixelIndexHours)));
+
+    double const pixelIndexMinutes = (static_cast<double>(timeOfDay.minutes) + (secondsAndSubseconds / 60.)) / 60. * strip.numPixels();
+    NeoPixelPatterns::addColorsWrapping(strip,
+                                        pixelIndexMinutes,
+                                        NeoPixelPatterns::brightnessFunctionMountain,
+                                        Colors::Green);
+
+    double const pixelIndexSeconds = secondsAndSubseconds / 60. * strip.numPixels();
+    NeoPixelPatterns::addColorsWrapping(strip,
+                                        pixelIndexSeconds,
+                                        NeoPixelPatterns::brightnessFunctionMountain,
+                                        Colors::Red);
+
+    strip.show();                          //  Update strip to match
+}
+
 namespace Pins
 {
 int constexpr led = 3;
@@ -184,7 +208,7 @@ void loop()
     TimeOfDay const timeOfDay = getTimeOfDayFromRTC(myRTC);
 
     // simulate subseconds
-    double secondsAndSubseconds = static_cast<double>(timeOfDay.seconds);
+    double subseconds = 0.;
     if (previousSeconds != timeOfDay.seconds)
     {
         // seconds changed -> reset subseconds to 0
@@ -194,28 +218,11 @@ void loop()
     else
     {
         // simulate via millis()
-        secondsAndSubseconds += static_cast<double>(millis() - lastSecondChangeTime) / 1000.;
+        subseconds = static_cast<double>(millis() - lastSecondChangeTime) / 1000.;
     }
 
     // Create color representation.
-    strip.clear();
-
-    uint16_t const pixelIndexHours = timeOfDay.hours % 12;
-    strip.setPixelColor(pixelIndexHours, Colors::addColors(Colors::Blue, strip.getPixelColor(pixelIndexHours)));
-
-    double const pixelIndexMinutes = (static_cast<double>(timeOfDay.minutes) + (secondsAndSubseconds / 60.)) / 60. * ledCount;
-    NeoPixelPatterns::addColorsWrapping(strip,
-                                        pixelIndexMinutes,
-                                        NeoPixelPatterns::brightnessFunctionMountain,
-                                        Colors::Green);
-
-    double const pixelIndexSeconds = secondsAndSubseconds / 60. * ledCount;
-    NeoPixelPatterns::addColorsWrapping(strip,
-                                        pixelIndexSeconds,
-                                        NeoPixelPatterns::brightnessFunctionMountain,
-                                        Colors::Red);
-
-    strip.show();                          //  Update strip to match
+    showTimeOfDay(strip, timeOfDay, subseconds);
 
 
 #if PRINT_SERIAL_TIME
