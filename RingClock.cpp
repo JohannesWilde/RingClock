@@ -77,6 +77,33 @@ static void showTimeOfDay(Adafruit_NeoPixel & strip, TimeOfDay const & timeOfDay
     strip.show();                          //  Update strip to match
 }
 
+static void serialPrintTimeOfDay(TimeOfDay const & timeOfDay)
+{
+    // send what's going on to the serial monitor.
+    Serial.print(timeOfDay.hours, DEC);
+    Serial.print(":");
+    Serial.print(timeOfDay.minutes, DEC);
+    Serial.print(":");
+    Serial.print(timeOfDay.seconds, DEC);
+
+    // // Add AM/PM indicator
+    // if (h12Flag) {
+    //   if (pmFlag) {
+    //     Serial.print(" PM ");
+    //   } else {
+    //     Serial.print(" AM ");
+    //   }
+    // } else {
+    //   Serial.print(" 24h ");
+    // }
+
+    // // Display the temperature
+    // Serial.print("T=");
+    // Serial.print(myRTC.getTemperature(), 2);
+
+    Serial.println();
+}
+
 enum class OperationalMode
 {
     Clock,
@@ -182,6 +209,13 @@ void setup()
 }
 
 
+namespace Common
+{
+
+bool modeChangeButtonReleasedOnceInThisMode = true;
+
+} // namespace Common
+
 namespace Clock
 {
 // typedef ButtonTop;
@@ -238,11 +272,22 @@ void loop()
     case OperationalMode::Clock:
     {
         bool displayTime = true;
-        if (Clock::ButtonSettings::releasedAfterLong())
+
+        if (!Common::modeChangeButtonReleasedOnceInThisMode)
+        {
+            if (Clock::ButtonSettings::releasedAfterLong())
+            {
+                Common::modeChangeButtonReleasedOnceInThisMode = true;
+            }
+        }
+        else if (Clock::ButtonSettings::isDownLong())
         {
             operationalMode = OperationalMode::Settings;
             Settings::timeOfDay = getTimeOfDayFromRTC(myRTC);
+            Clock::previousSeconds = Clock::previousSecondsInvalid;
             displayTime = false;
+
+            Common::modeChangeButtonReleasedOnceInThisMode = false;
         }
 
         if (displayTime)
@@ -269,29 +314,7 @@ void loop()
 
 
 #if PRINT_SERIAL_TIME
-            // send what's going on to the serial monitor.
-            Serial.print(timeOfDay.hours, DEC);
-            Serial.print(":");
-            Serial.print(timeOfDay.minutes, DEC);
-            Serial.print(":");
-            Serial.print(timeOfDay.seconds, DEC);
-
-            // // Add AM/PM indicator
-            // if (h12Flag) {
-            //   if (pmFlag) {
-            //     Serial.print(" PM ");
-            //   } else {
-            //     Serial.print(" AM ");
-            //   }
-            // } else {
-            //   Serial.print(" 24h ");
-            // }
-
-            // // Display the temperature
-            // Serial.print("T=");
-            // Serial.print(myRTC.getTemperature(), 2);
-
-            Serial.println();
+            serialPrintTimeOfDay(timeOfDay);
 #endif
         }
 
@@ -301,10 +324,16 @@ void loop()
     {
         bool displayTime = true;
 
-        if (Clock::ButtonSettings::releasedAfterLong())
+        if (!Common::modeChangeButtonReleasedOnceInThisMode)
+        {
+            if (Clock::ButtonSettings::releasedAfterLong())
+            {
+                Common::modeChangeButtonReleasedOnceInThisMode = true;
+            }
+        }
+        else if (Clock::ButtonSettings::isDownLong())
         {
             operationalMode = OperationalMode::Clock;
-            Settings::timeOfDay = getTimeOfDayFromRTC(myRTC);
 
             myRTC.setSecond(Settings::timeOfDay.seconds);
             myRTC.setMinute(Settings::timeOfDay.minutes);
@@ -313,8 +342,14 @@ void loop()
             // myRTC.setDate(9);
             // myRTC.setMonth(6);
             // myRTC.setYear(24);
+#if PRINT_SERIAL_TIME
+            Serial.print("Settings: ");
+            serialPrintTimeOfDay(Settings::timeOfDay);
+#endif
 
             displayTime = false;
+
+            Common::modeChangeButtonReleasedOnceInThisMode = false;
         }
 
         if (displayTime)
