@@ -56,7 +56,7 @@ static void showTimeOfDay(Adafruit_NeoPixel & strip, TimeOfDay const & timeOfDay
 
     strip.clear();
 
-    uint16_t const pixelIndexHours = timeOfDay.hours % 12;
+    uint16_t const pixelIndexHours = (timeOfDay.hours % 12) * strip.numPixels() / 12;
     strip.setPixelColor(pixelIndexHours, Colors::addColors(Colors::Blue, strip.getPixelColor(pixelIndexHours)));
 
     double const pixelIndexMinutes = (static_cast<double>(timeOfDay.minutes) + (secondsAndSubseconds / 60.)) / 60. * strip.numPixels();
