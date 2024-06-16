@@ -52,7 +52,8 @@ uint8_t constexpr defaultMaxBrightness = 200;
 DS3231 myRTC;
 
 // Declare our NeoPixel strip object:
-Adafruit_NeoPixel strip(ledCount, Pins::led, NEO_GRBW + NEO_KHZ800);
+// Adafruit_NeoPixel strip(ledCount, Pins::led, NEO_GRBW + NEO_KHZ800); // testing strip
+Adafruit_NeoPixel strip(ledCount, Pins::led, NEO_GRB + NEO_KHZ800); // 12-LEDs ring
 // Argument 1 = Number of pixels in NeoPixel strip
 // Argument 2 = Arduino pin number (most are valid)
 // Argument 3 = Pixel type flags, add together as needed:
