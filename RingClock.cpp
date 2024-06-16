@@ -104,6 +104,33 @@ static void serialPrintTimeOfDay(TimeOfDay const & timeOfDay)
     Serial.println();
 }
 
+template<class ButtonTimed_>
+static void serialPrintButton(char const * const name)
+{
+    char const * state = nullptr;
+
+    if (ButtonTimed_::isDownLong())
+    {
+        state = "downLong";
+    }
+    else if (ButtonTimed_::isDownShort())
+    {
+        state = "downShort";
+    }
+    else if (ButtonTimed_::isDown())
+    {
+        state = "down";
+    }
+
+    if (nullptr != state)
+    {
+        Serial.print(name);
+        Serial.print(": ");
+        Serial.print(state);
+        Serial.println();
+    }
+}
+
 enum class OperationalMode
 {
     Clock,
@@ -245,26 +272,10 @@ void loop()
     Helpers::TMP::Loop<4, WrapperUpdate>::impl();
 
 #if PRINT_SERIAL_BUTTONS
-    if (ButtonTop::pressed())
-    {
-        Serial.print("ButtonTop");
-        Serial.println();
-    }
-    if (ButtonRight::pressed())
-    {
-        Serial.print("ButtonRight");
-        Serial.println();
-    }
-    if (ButtonBottom::pressed())
-    {
-        Serial.print("ButtonBottom");
-        Serial.println();
-    }
-    if (ButtonLeft::pressed())
-    {
-        Serial.print("ButtonLeft");
-        Serial.println();
-    }
+    serialPrintButton<ButtonTop>("ButtonTop");
+    serialPrintButton<ButtonRight>("ButtonRight");
+    serialPrintButton<ButtonBottom>("ButtonBottom");
+    serialPrintButton<ButtonLeft>("ButtonLeft");
 #endif
 
     switch (operationalMode)
