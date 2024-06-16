@@ -17,6 +17,9 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 #include <DS3231.h>
 #include <Wire.h>
 
+
+// Classes, structs and methods.
+
 struct TimeOfDay
 {
     uint8_t hours;
@@ -50,7 +53,7 @@ static TimeOfDay getTimeOfDayFromRTC(DS3231 & rtc)
     return timeOfDay;
 }
 
-static void showTimeOfDay(Adafruit_NeoPixel & strip, TimeOfDay const & timeOfDay, double subseconds)
+static void showTimeOfDay(Adafruit_NeoPixel & strip, TimeOfDay const & timeOfDay, double subseconds = 0.)
 {
     double const secondsAndSubseconds = static_cast<double>(timeOfDay.seconds) + subseconds;
 
@@ -73,6 +76,15 @@ static void showTimeOfDay(Adafruit_NeoPixel & strip, TimeOfDay const & timeOfDay
 
     strip.show();                          //  Update strip to match
 }
+
+enum class OperationalMode
+{
+    Clock,
+    Settings
+};
+
+
+// Static variables and instances.
 
 namespace Pins
 {
@@ -141,6 +153,10 @@ struct WrapperUpdate
 };
 
 
+OperationalMode operationalMode = OperationalMode::Clock;
+
+// setup() and loop() functionality.
+
 void setup()
 {
     // Power for the RTC, as I don't have enough 5V ports on the UNO.
@@ -159,14 +175,6 @@ void setup()
     strip.show();            // Turn OFF all pixels ASAP
     strip.setBrightness(defaultMaxBrightness);
 
-// myRTC.setSecond(0);
-// myRTC.setMinute(32);
-// myRTC.setHour(17);
-// myRTC.setDoW(7);
-// myRTC.setDate(9);
-// myRTC.setMonth(6);
-// myRTC.setYear(24);
-
 #if PRINT_SERIAL_TIME || PRINT_SERIAL_BUTTONS
     // Start the serial interface
     Serial.begin(57600);
@@ -174,10 +182,31 @@ void setup()
 }
 
 
-static uint8_t previousSeconds = 255; // invalid
-static unsigned long lastSecondChangeTime = 0;
+namespace Clock
+{
+// typedef ButtonTop;
+typedef ButtonRight ButtonSettings;
+// typedef ButtonBottom;
+// typedef ButtonLeft;
 
-void loop() 
+static uint8_t constexpr previousSecondsInvalid = 255;
+
+static uint8_t previousSeconds = previousSecondsInvalid;
+static unsigned long lastSecondChangeTime = 0;
+} // namespace Clock
+
+
+namespace Settings
+{
+typedef ButtonTop ButtonUp;
+typedef ButtonRight ButtonExit;
+typedef ButtonBottom ButtonDown;
+// typedef ButtonLeft;
+
+TimeOfDay timeOfDay;
+} // namespace Settings
+
+void loop()
 {
     Helpers::TMP::Loop<4, WrapperUpdate>::impl();
 
@@ -204,52 +233,97 @@ void loop()
     }
 #endif
 
-    // Get hour, minutes, and seconds from RTC.
-    TimeOfDay const timeOfDay = getTimeOfDayFromRTC(myRTC);
-
-    // simulate subseconds
-    double subseconds = 0.;
-    if (previousSeconds != timeOfDay.seconds)
+    switch (operationalMode)
     {
-        // seconds changed -> reset subseconds to 0
-        lastSecondChangeTime = millis();
-        previousSeconds = timeOfDay.seconds;
-    }
-    else
+    case OperationalMode::Clock:
     {
-        // simulate via millis()
-        subseconds = static_cast<double>(millis() - lastSecondChangeTime) / 1000.;
-    }
+        bool displayTime = true;
+        if (Clock::ButtonSettings::releasedAfterLong())
+        {
+            operationalMode = OperationalMode::Settings;
+            Settings::timeOfDay = getTimeOfDayFromRTC(myRTC);
+            displayTime = false;
+        }
 
-    // Create color representation.
-    showTimeOfDay(strip, timeOfDay, subseconds);
+        if (displayTime)
+        {
+            // Get hour, minutes, and seconds from RTC.
+            TimeOfDay const timeOfDay = getTimeOfDayFromRTC(myRTC);
+
+            // simulate subseconds
+            double subseconds = 0.;
+            if (Clock::previousSeconds != timeOfDay.seconds)
+            {
+                // seconds changed -> reset subseconds to 0
+                Clock::lastSecondChangeTime = millis();
+                Clock::previousSeconds = timeOfDay.seconds;
+            }
+            else
+            {
+                // simulate via millis()
+                subseconds = static_cast<double>(millis() - Clock::lastSecondChangeTime) / 1000.;
+            }
+
+            // Create color representation.
+            showTimeOfDay(strip, timeOfDay, subseconds);
 
 
 #if PRINT_SERIAL_TIME
-    // send what's going on to the serial monitor.
-    Serial.print(timeOfDay.hours, DEC);
-    Serial.print(":");
-    Serial.print(timeOfDay.minutes, DEC);
-    Serial.print(":");
-    Serial.print(timeOfDay.seconds, DEC);
+            // send what's going on to the serial monitor.
+            Serial.print(timeOfDay.hours, DEC);
+            Serial.print(":");
+            Serial.print(timeOfDay.minutes, DEC);
+            Serial.print(":");
+            Serial.print(timeOfDay.seconds, DEC);
 
-    // // Add AM/PM indicator
-    // if (h12Flag) {
-    //   if (pmFlag) {
-    //     Serial.print(" PM ");
-    //   } else {
-    //     Serial.print(" AM ");
-    //   }
-    // } else {
-    //   Serial.print(" 24h ");
-    // }
+            // // Add AM/PM indicator
+            // if (h12Flag) {
+            //   if (pmFlag) {
+            //     Serial.print(" PM ");
+            //   } else {
+            //     Serial.print(" AM ");
+            //   }
+            // } else {
+            //   Serial.print(" 24h ");
+            // }
 
-    // // Display the temperature
-    // Serial.print("T=");
-    // Serial.print(myRTC.getTemperature(), 2);
+            // // Display the temperature
+            // Serial.print("T=");
+            // Serial.print(myRTC.getTemperature(), 2);
 
-    Serial.println();
+            Serial.println();
 #endif
+        }
+
+        break;
+    }
+    case OperationalMode::Settings:
+    {
+        bool displayTime = true;
+
+        if (Clock::ButtonSettings::releasedAfterLong())
+        {
+            operationalMode = OperationalMode::Clock;
+            Settings::timeOfDay = getTimeOfDayFromRTC(myRTC);
+
+            myRTC.setSecond(Settings::timeOfDay.seconds);
+            myRTC.setMinute(Settings::timeOfDay.minutes);
+            myRTC.setHour(Settings::timeOfDay.hours);
+            // myRTC.setDoW(7);
+            // myRTC.setDate(9);
+            // myRTC.setMonth(6);
+            // myRTC.setYear(24);
+
+            displayTime = false;
+        }
+
+        if (displayTime)
+        {
+            // Create color representation.
+            showTimeOfDay(strip, Settings::timeOfDay);
+        }
+    }
+    }
 
     delay(cycleDurationMs);
 }
