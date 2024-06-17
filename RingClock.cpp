@@ -450,9 +450,9 @@ void loop()
             uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
             uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
             (*component) += 1;
-            if (wrapAround == (*component))
+            while (wrapAround <= (*component))
             {
-                (*component) = 0;
+                (*component) -= wrapAround;
             }
         }
         else if (Settings::ButtonDown::pressed())
