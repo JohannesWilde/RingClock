@@ -133,9 +133,64 @@ static void serialPrintButton(char const * const name)
 
 enum class OperationalMode
 {
-    Clock,
-    Settings
+    clock,
+    settings
 };
+
+enum class SettingsSelection
+{
+    hours,
+    minutes,
+    seconds
+};
+
+SettingsSelection nextSettingsSelection(SettingsSelection const selection)
+{
+    SettingsSelection newSelection = SettingsSelection::seconds;
+    switch (selection)
+    {
+    case SettingsSelection::hours:
+    {
+        newSelection = SettingsSelection::minutes;
+        break;
+    }
+    case SettingsSelection::minutes:
+    {
+        newSelection = SettingsSelection::seconds;
+        break;
+    }
+    case SettingsSelection::seconds:
+    {
+        newSelection = SettingsSelection::hours;
+        break;
+    }
+    }
+    return newSelection;
+}
+
+uint8_t * timeOfDayComponentForSelection(TimeOfDay & timeOfDay, SettingsSelection const selection)
+{
+    uint8_t * newSelection = nullptr;
+    switch (selection)
+    {
+    case SettingsSelection::hours:
+    {
+        newSelection = &timeOfDay.hours;
+        break;
+    }
+    case SettingsSelection::minutes:
+    {
+        newSelection = &timeOfDay.minutes;
+        break;
+    }
+    case SettingsSelection::seconds:
+    {
+        newSelection = &timeOfDay.seconds;
+        break;
+    }
+    }
+    return newSelection;
+}
 
 
 // Static variables and instances.
@@ -148,7 +203,7 @@ int constexpr led = 3;
 uint16_t constexpr ledCount = 12;
 uint8_t constexpr defaultMaxBrightness = 200;
 
-#define PRINT_SERIAL_TIME false
+#define PRINT_SERIAL_TIME true
 #define PRINT_SERIAL_BUTTONS true
 
 DS3231 myRTC;
@@ -207,7 +262,7 @@ struct WrapperUpdate
 };
 
 
-OperationalMode operationalMode = OperationalMode::Clock;
+OperationalMode operationalMode = OperationalMode::clock;
 
 // setup() and loop() functionality.
 
@@ -260,12 +315,13 @@ static unsigned long lastSecondChangeTime = 0;
 namespace Settings
 {
 typedef ButtonTop ButtonUp;
-typedef ButtonRight ButtonExit;
+typedef ButtonRight ButtonSelectOrExit;
 typedef ButtonBottom ButtonDown;
 // typedef ButtonLeft;
 
 TimeOfDay timeOfDay;
-} // namespace Settings
+SettingsSelection settingsSelection = SettingsSelection::hours;
+} // namespace settings
 
 void loop()
 {
@@ -280,21 +336,23 @@ void loop()
 
     switch (operationalMode)
     {
-    case OperationalMode::Clock:
+    case OperationalMode::clock:
     {
         bool displayTime = true;
 
         if (!Common::modeChangeButtonReleasedOnceInThisMode)
         {
-            if (Clock::ButtonSettings::releasedAfterLong())
+            if (Settings::ButtonSelectOrExit::releasedAfterLong())
             {
                 Common::modeChangeButtonReleasedOnceInThisMode = true;
             }
         }
         else if (Clock::ButtonSettings::isDownLong())
         {
-            operationalMode = OperationalMode::Settings;
+            operationalMode = OperationalMode::settings;
             Settings::timeOfDay = getTimeOfDayFromRTC(myRTC);
+            Settings::settingsSelection = SettingsSelection::hours;
+
             Clock::previousSeconds = Clock::previousSecondsInvalid;
             displayTime = false;
 
@@ -331,7 +389,7 @@ void loop()
 
         break;
     }
-    case OperationalMode::Settings:
+    case OperationalMode::settings:
     {
         bool displayTime = true;
 
@@ -342,9 +400,9 @@ void loop()
                 Common::modeChangeButtonReleasedOnceInThisMode = true;
             }
         }
-        else if (Clock::ButtonSettings::isDownLong())
+        else if (Settings::ButtonSelectOrExit::isDownLong())
         {
-            operationalMode = OperationalMode::Clock;
+            operationalMode = OperationalMode::clock;
 
             myRTC.setSecond(Settings::timeOfDay.seconds);
             myRTC.setMinute(Settings::timeOfDay.minutes);
@@ -362,11 +420,29 @@ void loop()
 
             Common::modeChangeButtonReleasedOnceInThisMode = false;
         }
+        else if (Settings::ButtonSelectOrExit::pressed())
+        {
+            Settings::settingsSelection = nextSettingsSelection(Settings::settingsSelection);
+        }
+        else if (Settings::ButtonUp::pressed())
+        {
+            uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
+            (*component) += 1;
+        }
+        else if (Settings::ButtonDown::pressed())
+        {
+            uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
+            (*component) -= 1;
+        }
 
         if (displayTime)
         {
             // Create color representation.
             showTimeOfDay(strip, Settings::timeOfDay);
+
+#if PRINT_SERIAL_TIME
+            serialPrintTimeOfDay(Settings::timeOfDay);
+#endif
         }
     }
     }
