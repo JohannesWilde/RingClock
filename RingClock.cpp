@@ -214,6 +214,54 @@ uint8_t timeOfDayComponentWrapAroundForSelection(SettingsSelection const selecti
 }
 
 
+uint8_t incrementUint8Capped(uint8_t const value)
+{
+    uint8_t newValue = value;
+    if (newValue < UCHAR_MAX)
+    {
+        ++newValue;
+    }
+    return newValue;
+}
+
+bool longPressDurationActive(uint8_t const longPressDuration)
+{
+    // ramp up selection speed by decreasing the difference between true-returns.
+    switch (longPressDuration)
+    {
+    case 0:
+        // fall through
+    case 5:
+        // fall through
+    case 10:
+        // fall through
+    case 14:
+        // fall through
+    case 18:
+        // fall through
+    case 21:
+        // fall through
+    case 24:
+        // fall through
+    case 27:
+        // fall through
+    case 29:
+        // fall through
+    case 31:
+        // fall through
+    case 33:
+        // fall through
+    case 35:
+    {
+        return true;
+    }
+    default:
+    {
+        return (37 <= longPressDuration);
+    }
+    }
+}
+
 // Static variables and instances.
 
 namespace Pins
@@ -412,6 +460,8 @@ void loop()
     }
     case OperationalMode::settings:
     {
+        static uint8_t longPressDurationAccumulation = 0;
+
         bool displayTime = true;
 
         if (!Common::modeChangeButtonReleasedOnceInThisMode)
@@ -419,6 +469,7 @@ void loop()
             if (Clock::ButtonSettings::releasedAfterLong())
             {
                 Common::modeChangeButtonReleasedOnceInThisMode = true;
+                longPressDurationAccumulation = 0;
             }
         }
         else if (Settings::ButtonSelectOrExit::isDownLong())
@@ -444,8 +495,42 @@ void loop()
         else if (Settings::ButtonSelectOrExit::pressed())
         {
             Settings::settingsSelection = nextSettingsSelection(Settings::settingsSelection);
+            longPressDurationAccumulation = 0;
         }
-        else if (Settings::ButtonUp::pressed())
+        else if (Settings::ButtonUp::isDown() && Settings::ButtonDown::isDown())
+        {
+            // pressing both resets rampup
+            longPressDurationAccumulation = 0;
+        }
+        else if (Settings::ButtonUp::isDownLong())
+        {
+            longPressDurationAccumulation = incrementUint8Capped(longPressDurationAccumulation);
+            if (longPressDurationActive(longPressDurationAccumulation))
+            {
+                uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
+                uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
+                (*component) += 1;
+                while (wrapAround <= (*component))
+                {
+                    (*component) -= wrapAround;
+                }
+            }
+        }
+        else if (Settings::ButtonDown::isDownLong())
+        {
+            longPressDurationAccumulation = incrementUint8Capped(longPressDurationAccumulation);
+            if (longPressDurationActive(longPressDurationAccumulation))
+            {
+                uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
+                uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
+                if (0 == (*component))
+                {
+                    (*component) = wrapAround;
+                }
+                (*component) -= 1;
+            }
+        }
+        else if (Settings::ButtonUp::releasedAfterShort())
         {
             uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
             uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
@@ -455,7 +540,7 @@ void loop()
                 (*component) -= wrapAround;
             }
         }
-        else if (Settings::ButtonDown::pressed())
+        else if (Settings::ButtonDown::releasedAfterShort())
         {
             uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
             uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
