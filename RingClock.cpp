@@ -192,6 +192,27 @@ uint8_t * timeOfDayComponentForSelection(TimeOfDay & timeOfDay, SettingsSelectio
     return newSelection;
 }
 
+uint8_t timeOfDayComponentWrapAroundForSelection(SettingsSelection const selection)
+{
+    uint8_t wrapAround = 255;
+    switch (selection)
+    {
+    case SettingsSelection::hours:
+    {
+        wrapAround = 12;
+        break;
+    }
+    case SettingsSelection::minutes:
+        [[fallthrough]];
+    case SettingsSelection::seconds:
+    {
+        wrapAround = 60;
+        break;
+    }
+    }
+    return wrapAround;
+}
+
 
 // Static variables and instances.
 
@@ -427,11 +448,21 @@ void loop()
         else if (Settings::ButtonUp::pressed())
         {
             uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
+            uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
             (*component) += 1;
+            if (wrapAround == (*component))
+            {
+                (*component) = 0;
+            }
         }
         else if (Settings::ButtonDown::pressed())
         {
             uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
+            uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
+            if (0 == (*component))
+            {
+                (*component) = wrapAround;
+            }
             (*component) -= 1;
         }
 
