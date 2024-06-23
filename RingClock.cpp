@@ -17,8 +17,119 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 #include <DS3231.h>
 #include <Wire.h>
 
-
 // Classes, structs and methods.
+
+enum class SelectableColor
+{
+    blue,
+    green,
+    red,
+    yellow,
+    white
+};
+
+SelectableColor nextSelectableColor(SelectableColor const selectableColor)
+{
+    SelectableColor color = SelectableColor::white;
+    switch (selectableColor)
+    {
+    case SelectableColor::blue:
+    {
+        color = SelectableColor::green;
+        break;
+    }
+    case SelectableColor::green:
+    {
+        color = SelectableColor::red;
+        break;
+    }
+    case SelectableColor::red:
+    {
+        color = SelectableColor::yellow;
+        break;
+    }
+    case SelectableColor::yellow:
+    {
+        color = SelectableColor::white;
+        break;
+    }
+    case SelectableColor::white:
+    {
+        color = SelectableColor::blue;
+        break;
+    }
+    }
+    return color;
+}
+
+SelectableColor previousSelectableColor(SelectableColor const selectableColor)
+{
+    SelectableColor color = SelectableColor::white;
+    switch (selectableColor)
+    {
+    case SelectableColor::blue:
+    {
+        color = SelectableColor::white;
+        break;
+    }
+    case SelectableColor::green:
+    {
+        color = SelectableColor::blue;
+        break;
+    }
+    case SelectableColor::red:
+    {
+        color = SelectableColor::green;
+        break;
+    }
+    case SelectableColor::yellow:
+    {
+        color = SelectableColor::red;
+        break;
+    }
+    case SelectableColor::white:
+    {
+        color = SelectableColor::yellow;
+        break;
+    }
+    }
+    return color;
+}
+
+Colors::Color_t colorFrom(SelectableColor const selectableColor)
+{
+    Colors::Color_t color = Colors::Black;
+    switch (selectableColor)
+    {
+    case SelectableColor::blue:
+    {
+        color = Colors::Blue;
+        break;
+    }
+    case SelectableColor::green:
+    {
+        color = Colors::Green;
+        break;
+    }
+    case SelectableColor::red:
+    {
+        color = Colors::Red;
+        break;
+    }
+    case SelectableColor::yellow:
+    {
+        color = Colors::Yellow;
+        break;
+    }
+    case SelectableColor::white:
+    {
+        color = Colors::White;
+        break;
+    }
+    }
+    return color;
+}
+
 
 enum class DisplayComponent
 {
@@ -29,12 +140,12 @@ enum class DisplayComponent
 
 struct ColorSettings
 {
-    Colors::Color_t color = Colors::Black;
+    SelectableColor selectableColor = SelectableColor::white;
     uint8_t brightness = 255;
 
     Colors::Color_t scaledColor() const
     {
-        return Colors::colorScaleBrightness(color, static_cast<double>(brightness) / 255.);
+        return Colors::colorScaleBrightness(colorFrom(selectableColor), static_cast<double>(brightness) / 255.);
     }
 };
 
@@ -89,7 +200,15 @@ struct ColorsSettings
         }
         return *colorSettings;
     }
+
+    bool colorConflicts(SelectableColor const color) const
+    {
+        return ((color == at(DisplayComponent::hours).selectableColor)
+                || (color == at(DisplayComponent::minutes).selectableColor)
+                || (color == at(DisplayComponent::seconds).selectableColor));
+    }
 };
+
 
 struct TimeOfDay
 {
@@ -482,11 +601,11 @@ void setup()
 
     // Todo: save and load settings from eeprom
     colorsSettings.at(DisplayComponent::hours).brightness = defaultMaxBrightness;
-    colorsSettings.at(DisplayComponent::hours).color = Colors::Blue;
+    colorsSettings.at(DisplayComponent::hours).selectableColor = SelectableColor::blue;
     colorsSettings.at(DisplayComponent::minutes).brightness = defaultMaxBrightness;
-    colorsSettings.at(DisplayComponent::minutes).color = Colors::Green;
+    colorsSettings.at(DisplayComponent::minutes).selectableColor = SelectableColor::green;
     colorsSettings.at(DisplayComponent::seconds).brightness = defaultMaxBrightness;
-    colorsSettings.at(DisplayComponent::seconds).color = Colors::Red;
+    colorsSettings.at(DisplayComponent::seconds).selectableColor = SelectableColor::red;
 
 #if PRINT_SERIAL_TIME || PRINT_SERIAL_BUTTONS
     // Start the serial interface
@@ -615,6 +734,7 @@ void loop()
             {
                 Common::modeChangeButtonReleasedOnceInThisMode = true;
                 longPressDurationAccumulation = 0;
+                Settings::settingsType = SettingsType::value;
             }
         }
         else if (Settings::ButtonSelectOrExit::isDownLong())
@@ -700,7 +820,13 @@ void loop()
                 }
                 case SettingsType::color:
                 {
-
+                    SelectableColor & colorToModify = colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).selectableColor;
+                    SelectableColor newColor = nextSelectableColor(colorToModify);
+                    while (colorsSettings.colorConflicts(newColor))
+                    {
+                        newColor = nextSelectableColor(newColor);
+                    }
+                    colorToModify = newColor;
                     break;
                 }
                 }
@@ -726,7 +852,13 @@ void loop()
                 }
                 case SettingsType::color:
                 {
-
+                    SelectableColor & colorToModify = colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).selectableColor;
+                    SelectableColor newColor = previousSelectableColor(colorToModify);
+                    while (colorsSettings.colorConflicts(newColor))
+                    {
+                        newColor = previousSelectableColor(newColor);
+                    }
+                    colorToModify = newColor;
                     break;
                 }
                 }
@@ -749,7 +881,13 @@ void loop()
             }
             case SettingsType::color:
             {
-
+                SelectableColor & colorToModify = colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).selectableColor;
+                SelectableColor newColor = nextSelectableColor(colorToModify);
+                while (colorsSettings.colorConflicts(newColor))
+                {
+                    newColor = nextSelectableColor(newColor);
+                }
+                colorToModify = newColor;
                 break;
             }
             }
@@ -771,7 +909,13 @@ void loop()
             }
             case SettingsType::color:
             {
-
+                SelectableColor & colorToModify = colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).selectableColor;
+                SelectableColor newColor = previousSelectableColor(colorToModify);
+                while (colorsSettings.colorConflicts(newColor))
+                {
+                    newColor = previousSelectableColor(newColor);
+                }
+                colorToModify = newColor;
                 break;
             }
             }
