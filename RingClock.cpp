@@ -20,6 +20,77 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 
 // Classes, structs and methods.
 
+enum class DisplayComponent
+{
+    hours,
+    minutes,
+    seconds
+};
+
+struct ColorSettings
+{
+    Colors::Color_t color = Colors::Black;
+    uint8_t brightness = 255;
+
+    Colors::Color_t scaledColor() const
+    {
+        return Colors::colorScaleBrightness(color, static_cast<double>(brightness) / 255.);
+    }
+};
+
+struct ColorsSettings
+{
+    ColorSettings colorsSettings[3];
+
+    ColorSettings & at(DisplayComponent const component)
+    {
+        ColorSettings * colorSettings = nullptr;
+        switch (component)
+        {
+        case DisplayComponent::hours:
+        {
+            colorSettings = &colorsSettings[0];
+            break;
+        }
+        case DisplayComponent::minutes:
+        {
+            colorSettings = &colorsSettings[1];
+            break;
+        }
+        case DisplayComponent::seconds:
+        {
+            colorSettings = &colorsSettings[2];
+            break;
+        }
+        }
+        return *colorSettings;
+    }
+
+    ColorSettings const & at(DisplayComponent const component) const
+    {
+        ColorSettings const * colorSettings = nullptr;
+        switch (component)
+        {
+        case DisplayComponent::hours:
+        {
+            colorSettings = &colorsSettings[0];
+            break;
+        }
+        case DisplayComponent::minutes:
+        {
+            colorSettings = &colorsSettings[1];
+            break;
+        }
+        case DisplayComponent::seconds:
+        {
+            colorSettings = &colorsSettings[2];
+            break;
+        }
+        }
+        return *colorSettings;
+    }
+};
+
 struct TimeOfDay
 {
     uint8_t hours;
@@ -53,26 +124,27 @@ static TimeOfDay getTimeOfDayFromRTC(DS3231 & rtc)
     return timeOfDay;
 }
 
-static void showTimeOfDay(Adafruit_NeoPixel & strip, TimeOfDay const & timeOfDay, double subseconds = 0.)
+static void showTimeOfDay(Adafruit_NeoPixel & strip, TimeOfDay const & timeOfDay, double subseconds, ColorsSettings const & colorsSettings)
 {
     double const secondsAndSubseconds = static_cast<double>(timeOfDay.seconds) + subseconds;
 
     strip.clear();
 
     uint16_t const pixelIndexHours = (timeOfDay.hours % 12) * strip.numPixels() / 12;
-    strip.setPixelColor(pixelIndexHours, Colors::addColors(Colors::Blue, strip.getPixelColor(pixelIndexHours)));
+    strip.setPixelColor(pixelIndexHours, Colors::addColors(colorsSettings.at(DisplayComponent::hours).scaledColor(),
+                                                           strip.getPixelColor(pixelIndexHours)));
 
     double const pixelIndexMinutes = (static_cast<double>(timeOfDay.minutes) + (secondsAndSubseconds / 60.)) / 60. * strip.numPixels();
     NeoPixelPatterns::addColorsWrapping(strip,
                                         pixelIndexMinutes,
                                         NeoPixelPatterns::brightnessFunctionMountain,
-                                        Colors::Green);
+                                        colorsSettings.at(DisplayComponent::minutes).scaledColor());
 
     double const pixelIndexSeconds = secondsAndSubseconds / 60. * strip.numPixels();
     NeoPixelPatterns::addColorsWrapping(strip,
                                         pixelIndexSeconds,
                                         NeoPixelPatterns::brightnessFunctionMountain,
-                                        Colors::Red);
+                                        colorsSettings.at(DisplayComponent::seconds).scaledColor());
 
     strip.show();                          //  Update strip to match
 }
@@ -332,6 +404,7 @@ struct WrapperUpdate
 
 
 OperationalMode operationalMode = OperationalMode::clock;
+ColorsSettings colorsSettings;
 
 // setup() and loop() functionality.
 
@@ -351,14 +424,21 @@ void setup()
     // Startup LEDs
     strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
     strip.show();            // Turn OFF all pixels ASAP
-    strip.setBrightness(defaultMaxBrightness);
+    strip.setBrightness(255);
+
+    // Todo: save and load settings from eeprom
+    colorsSettings.at(DisplayComponent::hours).brightness = defaultMaxBrightness;
+    colorsSettings.at(DisplayComponent::hours).color = Colors::Blue;
+    colorsSettings.at(DisplayComponent::minutes).brightness = defaultMaxBrightness;
+    colorsSettings.at(DisplayComponent::minutes).color = Colors::Green;
+    colorsSettings.at(DisplayComponent::seconds).brightness = defaultMaxBrightness;
+    colorsSettings.at(DisplayComponent::seconds).color = Colors::Red;
 
 #if PRINT_SERIAL_TIME || PRINT_SERIAL_BUTTONS
     // Start the serial interface
     Serial.begin(57600);
 #endif
 }
-
 
 namespace Common
 {
@@ -448,7 +528,7 @@ void loop()
             }
 
             // Create color representation.
-            showTimeOfDay(strip, timeOfDay, subseconds);
+            showTimeOfDay(strip, timeOfDay, subseconds, colorsSettings);
 
 
 #if PRINT_SERIAL_TIME
@@ -554,7 +634,7 @@ void loop()
         if (displayTime)
         {
             // Create color representation.
-            showTimeOfDay(strip, Settings::timeOfDay);
+            showTimeOfDay(strip, Settings::timeOfDay, 0., colorsSettings);
 
 #if PRINT_SERIAL_TIME
             serialPrintTimeOfDay(Settings::timeOfDay);
