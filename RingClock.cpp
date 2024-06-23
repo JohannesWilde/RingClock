@@ -571,8 +571,8 @@ int constexpr led = 3;
 uint16_t constexpr ledCount = 12;
 uint8_t constexpr defaultMaxBrightness = 200;
 
-#define PRINT_SERIAL_TIME true
-#define PRINT_SERIAL_BUTTONS true
+#define PRINT_SERIAL_TIME false
+#define PRINT_SERIAL_BUTTONS false
 
 DS3231 myRTC;
 
