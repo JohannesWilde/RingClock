@@ -216,6 +216,37 @@ enum class SettingsSelection
     seconds
 };
 
+DisplayComponent displayComponentFrom(SettingsSelection const selection)
+{
+    DisplayComponent component = DisplayComponent::hours;
+    switch (selection)
+    {
+    case SettingsSelection::hours:
+    {
+        component = DisplayComponent::hours;
+        break;
+    }
+    case SettingsSelection::minutes:
+    {
+        component = DisplayComponent::minutes;
+        break;
+    }
+    case SettingsSelection::seconds:
+    {
+        component = DisplayComponent::seconds;
+        break;
+    }
+    }
+    return component;
+}
+
+enum class SettingsType
+{
+    value,
+    brightness,
+    color
+};
+
 SettingsSelection nextSettingsSelection(SettingsSelection const selection)
 {
     SettingsSelection newSelection = SettingsSelection::seconds;
@@ -333,6 +364,29 @@ bool longPressDurationActive(uint8_t const longPressDuration)
     }
     }
 }
+
+static void incrementTimeOfDayComponent(TimeOfDay & timeOfDay, SettingsSelection const settingsSelection)
+{
+    uint8_t * const component = timeOfDayComponentForSelection(timeOfDay, settingsSelection);
+    uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(settingsSelection);
+    (*component) += 1;
+    while (wrapAround <= (*component))
+    {
+        (*component) -= wrapAround;
+    }
+}
+
+static void decrementTimeOfDayComponent(TimeOfDay & timeOfDay, SettingsSelection const settingsSelection)
+{
+    uint8_t * const component = timeOfDayComponentForSelection(timeOfDay, settingsSelection);
+    uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(settingsSelection);
+    if (0 == (*component))
+    {
+        (*component) = wrapAround;
+    }
+    (*component) -= 1;
+}
+
 
 // Static variables and instances.
 
@@ -466,10 +520,11 @@ namespace Settings
 typedef ButtonTop ButtonUp;
 typedef ButtonRight ButtonSelectOrExit;
 typedef ButtonBottom ButtonDown;
-// typedef ButtonLeft;
+typedef ButtonLeft ButtonBrightnessOrColor;
 
 TimeOfDay timeOfDay;
 SettingsSelection settingsSelection = SettingsSelection::hours;
+SettingsType settingsType = SettingsType::value;
 } // namespace settings
 
 void loop()
@@ -501,6 +556,7 @@ void loop()
             operationalMode = OperationalMode::settings;
             Settings::timeOfDay = getTimeOfDayFromRTC(myRTC);
             Settings::settingsSelection = SettingsSelection::hours;
+            SettingsType settingsType = SettingsType::value;
 
             Clock::previousSeconds = Clock::previousSecondsInvalid;
             displayTime = false;
@@ -544,6 +600,15 @@ void loop()
 
         bool displayTime = true;
 
+        if (Settings::ButtonBrightnessOrColor::isDownLong())
+        {
+            Settings::settingsType = SettingsType::brightness;
+        }
+        else
+        {
+            // do nothing
+        }
+
         if (!Common::modeChangeButtonReleasedOnceInThisMode)
         {
             if (Clock::ButtonSettings::releasedAfterLong())
@@ -554,6 +619,8 @@ void loop()
         }
         else if (Settings::ButtonSelectOrExit::isDownLong())
         {
+            // todo: save colorSettings to eeprom
+
             operationalMode = OperationalMode::clock;
 
             myRTC.setSecond(Settings::timeOfDay.seconds);
@@ -582,17 +649,60 @@ void loop()
             // pressing both resets rampup
             longPressDurationAccumulation = 0;
         }
+        else if (Settings::ButtonBrightnessOrColor::isDownShort())
+        {
+            // reset longPressDuration once this button is pressed
+            longPressDurationAccumulation = 0;
+        }
+        else if (Settings::ButtonBrightnessOrColor::releasedAfterShort())
+        {
+            switch (Settings::settingsType)
+            {
+            case SettingsType::value:
+            {
+                Settings::settingsType = SettingsType::color;
+                break;
+            }
+            case SettingsType::brightness:
+            {
+                // this code should be unreachable
+                break;
+            }
+            case SettingsType::color:
+            {
+                Settings::settingsType = SettingsType::value;
+                break;
+            }
+            };
+        }
+        else if (Settings::ButtonBrightnessOrColor::releasedAfterLong())
+        {
+            Settings::settingsType = SettingsType::value;
+            longPressDurationAccumulation = 0;
+        }
         else if (Settings::ButtonUp::isDownLong())
         {
             longPressDurationAccumulation = incrementUint8Capped(longPressDurationAccumulation);
             if (longPressDurationActive(longPressDurationAccumulation))
             {
-                uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
-                uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
-                (*component) += 1;
-                while (wrapAround <= (*component))
+                switch (Settings::settingsType)
                 {
-                    (*component) -= wrapAround;
+                case SettingsType::value:
+                {
+                    incrementTimeOfDayComponent(Settings::timeOfDay, Settings::settingsSelection);
+                    break;
+                }
+                case SettingsType::brightness:
+                {
+                    // allow uint8_t overflow
+                    colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).brightness += 2;
+                    break;
+                }
+                case SettingsType::color:
+                {
+
+                    break;
+                }
                 }
             }
         }
@@ -601,34 +711,70 @@ void loop()
             longPressDurationAccumulation = incrementUint8Capped(longPressDurationAccumulation);
             if (longPressDurationActive(longPressDurationAccumulation))
             {
-                uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
-                uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
-                if (0 == (*component))
+                switch (Settings::settingsType)
                 {
-                    (*component) = wrapAround;
+                case SettingsType::value:
+                {
+                    decrementTimeOfDayComponent(Settings::timeOfDay, Settings::settingsSelection);
+                    break;
                 }
-                (*component) -= 1;
+                case SettingsType::brightness:
+                {
+                    // allow uint8_t overflow
+                    colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).brightness -= 2;
+                    break;
+                }
+                case SettingsType::color:
+                {
+
+                    break;
+                }
+                }
             }
         }
         else if (Settings::ButtonUp::releasedAfterShort())
         {
-            uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
-            uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
-            (*component) += 1;
-            while (wrapAround <= (*component))
+            switch (Settings::settingsType)
             {
-                (*component) -= wrapAround;
+            case SettingsType::value:
+            {
+                incrementTimeOfDayComponent(Settings::timeOfDay, Settings::settingsSelection);
+                break;
+            }
+            case SettingsType::brightness:
+            {
+                // allow uint8_t overflow
+                colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).brightness += 1;
+                break;
+            }
+            case SettingsType::color:
+            {
+
+                break;
+            }
             }
         }
         else if (Settings::ButtonDown::releasedAfterShort())
         {
-            uint8_t * const component = timeOfDayComponentForSelection(Settings::timeOfDay, Settings::settingsSelection);
-            uint8_t const wrapAround = timeOfDayComponentWrapAroundForSelection(Settings::settingsSelection);
-            if (0 == (*component))
+            switch (Settings::settingsType)
             {
-                (*component) = wrapAround;
+            case SettingsType::value:
+            {
+                decrementTimeOfDayComponent(Settings::timeOfDay, Settings::settingsSelection);
+                break;
             }
-            (*component) -= 1;
+            case SettingsType::brightness:
+            {
+                // allow uint8_t overflow
+                colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).brightness -= 1;
+                break;
+            }
+            case SettingsType::color:
+            {
+
+                break;
+            }
+            }
         }
 
         if (displayTime)
