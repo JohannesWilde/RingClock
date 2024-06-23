@@ -11,6 +11,7 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 #include "ArduinoDrivers/buttonTimed.hpp"
 #include "ArduinoDrivers/simplePinAvr.hpp"
 
+#include "helpers/crc16.hpp"
 #include "helpers/tmpLoop.hpp"
 
 #include <Adafruit_NeoPixel.h>
@@ -507,6 +508,59 @@ static void decrementTimeOfDayComponent(TimeOfDay & timeOfDay, SettingsSelection
 }
 
 
+struct BackupValues
+{
+    ColorsSettings colorsSettings;
+
+    BackupValues(ColorsSettings const & colorsSettings)
+        : colorsSettings(colorsSettings)
+    {
+        // intentionally empty
+    }
+};
+
+namespace Eeprom
+{
+
+typedef size_t Address;
+
+namespace Addresses
+{
+
+static Address constexpr backupValues = 0;
+
+static_assert(E2END >= (backupValues + sizeof(BackupValues) + 2 /* CRC */ - 1 /* index */));
+
+} // namespace Addresses
+
+
+void writeWithCrc(void const * const data, size_t const byteCount, Address const eepromAddress)
+{
+    Crc16Ibm3740 crc;
+    crc.process(static_cast<uint8_t const *>(data), byteCount);
+    uint16_t const crcValue = crc.get();
+
+    eeprom_write_block(data, (void *)(eepromAddress), byteCount);
+    eeprom_write_block(&crcValue, (void *)(eepromAddress + byteCount), 2);
+}
+
+
+bool readWithCrc(void * const data, size_t const byteCount, Address const eepromAddress)
+{
+    uint16_t crcValue = 0xffff;
+
+    eeprom_read_block(data, (void const *)(eepromAddress), byteCount);
+    eeprom_read_block(&crcValue, (void const *)(eepromAddress + byteCount), 2);
+
+    Crc16Ibm3740 crc;
+    crc.process(static_cast<uint8_t const *>(data), byteCount);
+
+    return (crc.get() == crcValue);
+}
+
+
+} // namespace Eeprom
+
 // Static variables and instances.
 
 namespace Pins
@@ -600,12 +654,21 @@ void setup()
     strip.setBrightness(255);
 
     // Todo: save and load settings from eeprom
-    colorsSettings.at(DisplayComponent::hours).brightness = defaultMaxBrightness;
-    colorsSettings.at(DisplayComponent::hours).selectableColor = SelectableColor::blue;
-    colorsSettings.at(DisplayComponent::minutes).brightness = defaultMaxBrightness;
-    colorsSettings.at(DisplayComponent::minutes).selectableColor = SelectableColor::green;
-    colorsSettings.at(DisplayComponent::seconds).brightness = defaultMaxBrightness;
-    colorsSettings.at(DisplayComponent::seconds).selectableColor = SelectableColor::red;
+    BackupValues backupValues(colorsSettings);
+    bool const readBack = Eeprom::readWithCrc(&backupValues, sizeof(BackupValues), Eeprom::Addresses::backupValues);
+    if (readBack)
+    {
+        colorsSettings = backupValues.colorsSettings;
+    }
+    else
+    {
+        colorsSettings.at(DisplayComponent::hours).brightness = defaultMaxBrightness;
+        colorsSettings.at(DisplayComponent::hours).selectableColor = SelectableColor::blue;
+        colorsSettings.at(DisplayComponent::minutes).brightness = defaultMaxBrightness;
+        colorsSettings.at(DisplayComponent::minutes).selectableColor = SelectableColor::green;
+        colorsSettings.at(DisplayComponent::seconds).brightness = defaultMaxBrightness;
+        colorsSettings.at(DisplayComponent::seconds).selectableColor = SelectableColor::red;
+    }
 
 #if PRINT_SERIAL_TIME || PRINT_SERIAL_BUTTONS
     // Start the serial interface
@@ -739,7 +802,8 @@ void loop()
         }
         else if (Settings::ButtonSelectOrExit::isDownLong())
         {
-            // todo: save colorSettings to eeprom
+            BackupValues const backupValues(colorsSettings);
+            Eeprom::writeWithCrc(&backupValues, sizeof(BackupValues), Eeprom::Addresses::backupValues);
 
             operationalMode = OperationalMode::clock;
 
