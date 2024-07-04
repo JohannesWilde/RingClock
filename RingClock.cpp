@@ -13,6 +13,7 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 
 #include "eeprom.hpp"
 
+#include "helpers/statemachine.hpp"
 #include "helpers/tmpLoop.hpp"
 
 #include <Adafruit_NeoPixel.h>
@@ -593,8 +594,101 @@ struct WrapperUpdate
 };
 
 
-OperationalMode operationalMode = OperationalMode::clock;
-ColorsSettings colorsSettings;
+class SettingsClockDisplay
+{
+private:
+    friend class StateClockDisplay;
+
+    static uint8_t constexpr previousSecondsInvalid = 255;
+
+    uint8_t previousSeconds = previousSecondsInvalid;
+    unsigned long lastSecondChangeTime = 0;
+
+    bool modeChangeButtonWasUpOnceInThisMode = true;
+};
+
+class SettingsClockSettings
+{
+private:
+    friend class StateClockSettings;
+
+    SettingsSelection settingsSelection = SettingsSelection::hours;
+    SettingsType settingsType = SettingsType::value;
+
+    bool modeChangeButtonWasUpOnceInThisMode = true;
+
+    uint8_t longPressDurationAccumulation = 0;
+};
+
+struct DataClock
+{
+    TimeOfDay timeOfDay;
+    double subseconds = 0;
+    ColorsSettings colorsSettings;
+    bool updateDisplay = false;
+
+    SettingsClockDisplay settingsClockDisplay;
+    SettingsClockSettings settingsClockSettings;
+}; // namespace Common
+
+static DataClock dataClock;
+
+
+class StateClockDisplay : public Helpers::AbstractState<DataClock>
+{
+public:
+    // typedef ButtonTop;
+    typedef ButtonRight ButtonSettings;
+    // typedef ButtonBottom;
+    // typedef ButtonLeft;
+
+    void init(DataClock & data) const override
+    {
+        data.settingsClockDisplay.previousSeconds = data.settingsClockDisplay.previousSecondsInvalid;
+        data.settingsClockDisplay.lastSecondChangeTime = 0;
+
+        data.settingsClockDisplay.modeChangeButtonWasUpOnceInThisMode = false;
+    }
+
+    AbstractState const & process(DataClock & data) const override;
+
+    void deinit(DataClock & data) const override
+    {
+        // intentionally empty
+    }
+};
+static StateClockDisplay stateClockDisplay;
+
+
+class StateClockSettings : public Helpers::AbstractState<DataClock>
+{
+public:
+    typedef ButtonTop ButtonUp;
+    typedef ButtonRight ButtonSelectOrExit;
+    typedef ButtonBottom ButtonDown;
+    typedef ButtonLeft ButtonBrightnessOrColor;
+
+    void init(DataClock & data) const override
+    {
+        data.settingsClockSettings.settingsSelection = SettingsSelection::hours;
+        data.settingsClockSettings.settingsType = SettingsType::value;
+
+        data.settingsClockSettings.modeChangeButtonWasUpOnceInThisMode = false;
+        data.settingsClockSettings.longPressDurationAccumulation = 0;
+
+        data.subseconds = 0;
+    }
+
+    AbstractState const & process(DataClock & data) const override;
+
+    void deinit(DataClock & data) const override
+    {
+        // intentionally empty
+    }
+};
+static StateClockSettings stateClockSettings;
+
+static Helpers::Statemachine<DataClock> statemachine(stateClockDisplay);
 
 // setup() and loop() functionality.
 
@@ -617,20 +711,20 @@ void setup()
     strip.setBrightness(255);
 
     // Todo: save and load settings from eeprom
-    BackupValues backupValues(colorsSettings);
+    BackupValues backupValues(dataClock.colorsSettings);
     bool const readBack = Eeprom::readWithCrc(&backupValues, sizeof(BackupValues), backupValuesAddress);
     if (readBack)
     {
-        colorsSettings = backupValues.colorsSettings;
+        dataClock.colorsSettings = backupValues.colorsSettings;
     }
     else
     {
-        colorsSettings.at(DisplayComponent::hours).brightness = defaultMaxBrightness;
-        colorsSettings.at(DisplayComponent::hours).selectableColor = SelectableColor::blue;
-        colorsSettings.at(DisplayComponent::minutes).brightness = defaultMaxBrightness;
-        colorsSettings.at(DisplayComponent::minutes).selectableColor = SelectableColor::green;
-        colorsSettings.at(DisplayComponent::seconds).brightness = defaultMaxBrightness;
-        colorsSettings.at(DisplayComponent::seconds).selectableColor = SelectableColor::red;
+        dataClock.colorsSettings.at(DisplayComponent::hours).brightness = defaultMaxBrightness;
+        dataClock.colorsSettings.at(DisplayComponent::hours).selectableColor = SelectableColor::blue;
+        dataClock.colorsSettings.at(DisplayComponent::minutes).brightness = defaultMaxBrightness;
+        dataClock.colorsSettings.at(DisplayComponent::minutes).selectableColor = SelectableColor::green;
+        dataClock.colorsSettings.at(DisplayComponent::seconds).brightness = defaultMaxBrightness;
+        dataClock.colorsSettings.at(DisplayComponent::seconds).selectableColor = SelectableColor::red;
     }
 
 #if PRINT_SERIAL_TIME || PRINT_SERIAL_BUTTONS
@@ -639,38 +733,6 @@ void setup()
 #endif
 }
 
-namespace Common
-{
-
-bool modeChangeButtonReleasedOnceInThisMode = true;
-
-} // namespace Common
-
-namespace Clock
-{
-// typedef ButtonTop;
-typedef ButtonRight ButtonSettings;
-// typedef ButtonBottom;
-// typedef ButtonLeft;
-
-static uint8_t constexpr previousSecondsInvalid = 255;
-
-static uint8_t previousSeconds = previousSecondsInvalid;
-static unsigned long lastSecondChangeTime = 0;
-} // namespace Clock
-
-
-namespace Settings
-{
-typedef ButtonTop ButtonUp;
-typedef ButtonRight ButtonSelectOrExit;
-typedef ButtonBottom ButtonDown;
-typedef ButtonLeft ButtonBrightnessOrColor;
-
-TimeOfDay timeOfDay;
-SettingsSelection settingsSelection = SettingsSelection::hours;
-SettingsType settingsType = SettingsType::value;
-} // namespace settings
 
 void loop()
 {
@@ -683,234 +745,176 @@ void loop()
     serialPrintButton<ButtonLeft>("ButtonLeft");
 #endif
 
-    switch (operationalMode)
+    statemachine.process(dataClock);
+
+    if (dataClock.updateDisplay)
     {
-    case OperationalMode::clock:
-    {
-        bool displayTime = true;
-
-        if (!Common::modeChangeButtonReleasedOnceInThisMode)
-        {
-            if (Settings::ButtonSelectOrExit::releasedAfterLong())
-            {
-                Common::modeChangeButtonReleasedOnceInThisMode = true;
-            }
-        }
-        else if (Clock::ButtonSettings::isDownLong())
-        {
-            operationalMode = OperationalMode::settings;
-            Settings::timeOfDay = getTimeOfDayFromRTC(myRTC);
-            Settings::settingsSelection = SettingsSelection::hours;
-            SettingsType settingsType = SettingsType::value;
-
-            Clock::previousSeconds = Clock::previousSecondsInvalid;
-            displayTime = false;
-
-            Common::modeChangeButtonReleasedOnceInThisMode = false;
-        }
-
-        if (displayTime)
-        {
-            // Get hour, minutes, and seconds from RTC.
-            TimeOfDay const timeOfDay = getTimeOfDayFromRTC(myRTC);
-
-            // simulate subseconds
-            double subseconds = 0.;
-            if (Clock::previousSeconds != timeOfDay.seconds)
-            {
-                // seconds changed -> reset subseconds to 0
-                Clock::lastSecondChangeTime = millis();
-                Clock::previousSeconds = timeOfDay.seconds;
-            }
-            else
-            {
-                // simulate via millis()
-                subseconds = static_cast<double>(millis() - Clock::lastSecondChangeTime) / 1000.;
-            }
-
-            // Create color representation.
-            showTimeOfDay(strip, timeOfDay, subseconds, colorsSettings);
-
+        // Create color representation.
+        showTimeOfDay(strip, dataClock.timeOfDay, dataClock.subseconds, dataClock.colorsSettings);
+    }
 
 #if PRINT_SERIAL_TIME
-            serialPrintTimeOfDay(timeOfDay);
+    serialPrintTimeOfDay(timeOfDay);
 #endif
-        }
 
-        break;
-    }
-    case OperationalMode::settings:
+    delay(cycleDurationMs);
+}
+
+
+
+Helpers::AbstractState<DataClock> const & StateClockDisplay::process(DataClock & data) const
+{
+    Helpers::AbstractState<DataClock> const * nextState = this;
+
+    data.updateDisplay = true;
+
+    if (!data.settingsClockDisplay.modeChangeButtonWasUpOnceInThisMode)
     {
-        static uint8_t longPressDurationAccumulation = 0;
-
-        bool displayTime = true;
-
-        if (Settings::ButtonBrightnessOrColor::isDownLong())
+        if (StateClockSettings::ButtonSelectOrExit::isUp())
         {
-            Settings::settingsType = SettingsType::brightness;
+            data.settingsClockDisplay.modeChangeButtonWasUpOnceInThisMode = true;
+        }
+    }
+    else if (ButtonSettings::isDownLong())
+    {
+        // operationalMode = OperationalMode::settings;
+        data.timeOfDay = getTimeOfDayFromRTC(myRTC);
+
+        data.updateDisplay = false;
+
+        nextState = &stateClockSettings;
+    }
+
+    if (data.updateDisplay)
+    {
+        // Get hour, minutes, and seconds from RTC.
+        data.timeOfDay = getTimeOfDayFromRTC(myRTC);
+
+        // simulate subseconds
+        double subseconds = 0.;
+        if (data.settingsClockDisplay.previousSeconds != data.timeOfDay.seconds)
+        {
+            // seconds changed -> reset subseconds to 0
+            data.settingsClockDisplay.lastSecondChangeTime = millis();
+            data.settingsClockDisplay.previousSeconds = data.timeOfDay.seconds;
         }
         else
         {
-            // do nothing
+            // simulate via millis()
+            subseconds = static_cast<double>(millis() - data.settingsClockDisplay.lastSecondChangeTime) / 1000.;
         }
+    }
 
-        if (!Common::modeChangeButtonReleasedOnceInThisMode)
+    return *nextState;
+}
+
+Helpers::AbstractState<DataClock> const & StateClockSettings::process(DataClock & data) const
+{
+    Helpers::AbstractState<DataClock> const * nextState = this;
+
+    data.updateDisplay = true;
+
+    if (StateClockSettings::ButtonBrightnessOrColor::isDownLong())
+    {
+        data.settingsClockSettings.settingsType = SettingsType::brightness;
+    }
+    else
+    {
+        // do nothing
+    }
+
+    if (!data.settingsClockSettings.modeChangeButtonWasUpOnceInThisMode)
+    {
+        if (StateClockDisplay::ButtonSettings::isUp())
         {
-            if (Clock::ButtonSettings::releasedAfterLong())
-            {
-                Common::modeChangeButtonReleasedOnceInThisMode = true;
-                longPressDurationAccumulation = 0;
-                Settings::settingsType = SettingsType::value;
-            }
+            data.settingsClockSettings.modeChangeButtonWasUpOnceInThisMode = true;
         }
-        else if (Settings::ButtonSelectOrExit::isDownLong())
-        {
-            BackupValues const backupValues(colorsSettings);
-            Eeprom::writeWithCrc(&backupValues, sizeof(BackupValues), backupValuesAddress);
+    }
+    else if (StateClockSettings::ButtonSelectOrExit::isDownLong())
+    {
+        BackupValues const backupValues(data.colorsSettings);
+        Eeprom::writeWithCrc(&backupValues, sizeof(BackupValues), backupValuesAddress);
 
-            operationalMode = OperationalMode::clock;
+        nextState = &stateClockDisplay;
 
-            myRTC.setSecond(Settings::timeOfDay.seconds);
-            myRTC.setMinute(Settings::timeOfDay.minutes);
-            myRTC.setHour(Settings::timeOfDay.hours);
-            // myRTC.setDoW(7);
-            // myRTC.setDate(9);
-            // myRTC.setMonth(6);
-            // myRTC.setYear(24);
+        myRTC.setSecond(data.timeOfDay.seconds);
+        myRTC.setMinute(data.timeOfDay.minutes);
+        myRTC.setHour(data.timeOfDay.hours);
+        // myRTC.setDoW(7);
+        // myRTC.setDate(9);
+        // myRTC.setMonth(6);
+        // myRTC.setYear(24);
 #if PRINT_SERIAL_TIME
-            Serial.print("Settings: ");
-            serialPrintTimeOfDay(Settings::timeOfDay);
+        Serial.print("Settings: ");
+        serialPrintTimeOfDay(data.timeOfDay);
 #endif
 
-            displayTime = false;
-
-            Common::modeChangeButtonReleasedOnceInThisMode = false;
-        }
-        else if (Settings::ButtonSelectOrExit::pressed())
+        data.updateDisplay = false;
+    }
+    else if (StateClockSettings::ButtonSelectOrExit::pressed())
+    {
+        data.settingsClockSettings.settingsSelection = nextSettingsSelection(data.settingsClockSettings.settingsSelection);
+        data.settingsClockSettings.longPressDurationAccumulation = 0;
+    }
+    else if (StateClockSettings::ButtonUp::isDown() && StateClockSettings::ButtonDown::isDown())
+    {
+        // pressing both resets rampup
+        data.settingsClockSettings.longPressDurationAccumulation = 0;
+    }
+    else if (StateClockSettings::ButtonBrightnessOrColor::isDownShort())
+    {
+        // reset longPressDuration once this button is pressed
+        data.settingsClockSettings.longPressDurationAccumulation = 0;
+    }
+    else if (StateClockSettings::ButtonBrightnessOrColor::releasedAfterShort())
+    {
+        switch (data.settingsClockSettings.settingsType)
         {
-            Settings::settingsSelection = nextSettingsSelection(Settings::settingsSelection);
-            longPressDurationAccumulation = 0;
-        }
-        else if (Settings::ButtonUp::isDown() && Settings::ButtonDown::isDown())
+        case SettingsType::value:
         {
-            // pressing both resets rampup
-            longPressDurationAccumulation = 0;
+            data.settingsClockSettings.settingsType = SettingsType::color;
+            break;
         }
-        else if (Settings::ButtonBrightnessOrColor::isDownShort())
+        case SettingsType::brightness:
         {
-            // reset longPressDuration once this button is pressed
-            longPressDurationAccumulation = 0;
+            // this code should be unreachable
+            break;
         }
-        else if (Settings::ButtonBrightnessOrColor::releasedAfterShort())
+        case SettingsType::color:
         {
-            switch (Settings::settingsType)
+            data.settingsClockSettings.settingsType = SettingsType::value;
+            break;
+        }
+        };
+    }
+    else if (StateClockSettings::ButtonBrightnessOrColor::releasedAfterLong())
+    {
+        data.settingsClockSettings.settingsType = SettingsType::value;
+        data.settingsClockSettings.longPressDurationAccumulation = 0;
+    }
+    else if (StateClockSettings::ButtonUp::isDownLong())
+    {
+        data.settingsClockSettings.longPressDurationAccumulation = incrementUint8Capped(data.settingsClockSettings.longPressDurationAccumulation);
+        if (longPressDurationActive(data.settingsClockSettings.longPressDurationAccumulation))
+        {
+            switch (data.settingsClockSettings.settingsType)
             {
             case SettingsType::value:
             {
-                Settings::settingsType = SettingsType::color;
-                break;
-            }
-            case SettingsType::brightness:
-            {
-                // this code should be unreachable
-                break;
-            }
-            case SettingsType::color:
-            {
-                Settings::settingsType = SettingsType::value;
-                break;
-            }
-            };
-        }
-        else if (Settings::ButtonBrightnessOrColor::releasedAfterLong())
-        {
-            Settings::settingsType = SettingsType::value;
-            longPressDurationAccumulation = 0;
-        }
-        else if (Settings::ButtonUp::isDownLong())
-        {
-            longPressDurationAccumulation = incrementUint8Capped(longPressDurationAccumulation);
-            if (longPressDurationActive(longPressDurationAccumulation))
-            {
-                switch (Settings::settingsType)
-                {
-                case SettingsType::value:
-                {
-                    incrementTimeOfDayComponent(Settings::timeOfDay, Settings::settingsSelection);
-                    break;
-                }
-                case SettingsType::brightness:
-                {
-                    // allow uint8_t overflow
-                    colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).brightness += 2;
-                    break;
-                }
-                case SettingsType::color:
-                {
-                    SelectableColor & colorToModify = colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).selectableColor;
-                    SelectableColor newColor = nextSelectableColor(colorToModify);
-                    while (colorsSettings.colorConflicts(newColor))
-                    {
-                        newColor = nextSelectableColor(newColor);
-                    }
-                    colorToModify = newColor;
-                    break;
-                }
-                }
-            }
-        }
-        else if (Settings::ButtonDown::isDownLong())
-        {
-            longPressDurationAccumulation = incrementUint8Capped(longPressDurationAccumulation);
-            if (longPressDurationActive(longPressDurationAccumulation))
-            {
-                switch (Settings::settingsType)
-                {
-                case SettingsType::value:
-                {
-                    decrementTimeOfDayComponent(Settings::timeOfDay, Settings::settingsSelection);
-                    break;
-                }
-                case SettingsType::brightness:
-                {
-                    // allow uint8_t overflow
-                    colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).brightness -= 2;
-                    break;
-                }
-                case SettingsType::color:
-                {
-                    SelectableColor & colorToModify = colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).selectableColor;
-                    SelectableColor newColor = previousSelectableColor(colorToModify);
-                    while (colorsSettings.colorConflicts(newColor))
-                    {
-                        newColor = previousSelectableColor(newColor);
-                    }
-                    colorToModify = newColor;
-                    break;
-                }
-                }
-            }
-        }
-        else if (Settings::ButtonUp::releasedAfterShort())
-        {
-            switch (Settings::settingsType)
-            {
-            case SettingsType::value:
-            {
-                incrementTimeOfDayComponent(Settings::timeOfDay, Settings::settingsSelection);
+                incrementTimeOfDayComponent(data.timeOfDay, data.settingsClockSettings.settingsSelection);
                 break;
             }
             case SettingsType::brightness:
             {
                 // allow uint8_t overflow
-                colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).brightness += 1;
+                data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).brightness += 2;
                 break;
             }
             case SettingsType::color:
             {
-                SelectableColor & colorToModify = colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).selectableColor;
+                SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).selectableColor;
                 SelectableColor newColor = nextSelectableColor(colorToModify);
-                while (colorsSettings.colorConflicts(newColor))
+                while (data.colorsSettings.colorConflicts(newColor))
                 {
                     newColor = nextSelectableColor(newColor);
                 }
@@ -919,26 +923,30 @@ void loop()
             }
             }
         }
-        else if (Settings::ButtonDown::releasedAfterShort())
+    }
+    else if (StateClockSettings::ButtonDown::isDownLong())
+    {
+        data.settingsClockSettings.longPressDurationAccumulation = incrementUint8Capped(data.settingsClockSettings.longPressDurationAccumulation);
+        if (longPressDurationActive(data.settingsClockSettings.longPressDurationAccumulation))
         {
-            switch (Settings::settingsType)
+            switch (data.settingsClockSettings.settingsType)
             {
             case SettingsType::value:
             {
-                decrementTimeOfDayComponent(Settings::timeOfDay, Settings::settingsSelection);
+                decrementTimeOfDayComponent(data.timeOfDay, data.settingsClockSettings.settingsSelection);
                 break;
             }
             case SettingsType::brightness:
             {
                 // allow uint8_t overflow
-                colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).brightness -= 1;
+                data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).brightness -= 2;
                 break;
             }
             case SettingsType::color:
             {
-                SelectableColor & colorToModify = colorsSettings.at(displayComponentFrom(Settings::settingsSelection)).selectableColor;
+                SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).selectableColor;
                 SelectableColor newColor = previousSelectableColor(colorToModify);
-                while (colorsSettings.colorConflicts(newColor))
+                while (data.colorsSettings.colorConflicts(newColor))
                 {
                     newColor = previousSelectableColor(newColor);
                 }
@@ -947,18 +955,63 @@ void loop()
             }
             }
         }
-
-        if (displayTime)
+    }
+    else if (StateClockSettings::ButtonUp::releasedAfterShort())
+    {
+        switch (data.settingsClockSettings.settingsType)
         {
-            // Create color representation.
-            showTimeOfDay(strip, Settings::timeOfDay, 0., colorsSettings);
-
-#if PRINT_SERIAL_TIME
-            serialPrintTimeOfDay(Settings::timeOfDay);
-#endif
+        case SettingsType::value:
+        {
+            incrementTimeOfDayComponent(data.timeOfDay, data.settingsClockSettings.settingsSelection);
+            break;
+        }
+        case SettingsType::brightness:
+        {
+            // allow uint8_t overflow
+            data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).brightness += 1;
+            break;
+        }
+        case SettingsType::color:
+        {
+            SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).selectableColor;
+            SelectableColor newColor = nextSelectableColor(colorToModify);
+            while (data.colorsSettings.colorConflicts(newColor))
+            {
+                newColor = nextSelectableColor(newColor);
+            }
+            colorToModify = newColor;
+            break;
+        }
         }
     }
+    else if (StateClockSettings::ButtonDown::releasedAfterShort())
+    {
+        switch (data.settingsClockSettings.settingsType)
+        {
+        case SettingsType::value:
+        {
+            decrementTimeOfDayComponent(data.timeOfDay, data.settingsClockSettings.settingsSelection);
+            break;
+        }
+        case SettingsType::brightness:
+        {
+            // allow uint8_t overflow
+            data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).brightness -= 1;
+            break;
+        }
+        case SettingsType::color:
+        {
+            SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).selectableColor;
+            SelectableColor newColor = previousSelectableColor(colorToModify);
+            while (data.colorsSettings.colorConflicts(newColor))
+            {
+                newColor = previousSelectableColor(newColor);
+            }
+            colorToModify = newColor;
+            break;
+        }
+        }
     }
 
-    delay(cycleDurationMs);
+    return *nextState;
 }
