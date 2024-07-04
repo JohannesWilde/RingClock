@@ -878,17 +878,17 @@ Helpers::AbstractState<DataClock> const & StateClockDisplay::process(DataClock &
         data.timeOfDay = getTimeOfDayFromRTC(myRTC);
 
         // simulate subseconds
-        double subseconds = 0.;
         if (data.settingsClockDisplay.previousSeconds != data.timeOfDay.seconds)
         {
             // seconds changed -> reset subseconds to 0
             data.settingsClockDisplay.lastSecondChangeTime = millis();
             data.settingsClockDisplay.previousSeconds = data.timeOfDay.seconds;
+            data.subseconds = 0;
         }
         else
         {
             // simulate via millis()
-            subseconds = static_cast<double>(millis() - data.settingsClockDisplay.lastSecondChangeTime) / 1000.;
+            data.subseconds = static_cast<double>(millis() - data.settingsClockDisplay.lastSecondChangeTime) / 1000.;
         }
     }
 
