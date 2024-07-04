@@ -786,6 +786,7 @@ void setup()
     Helpers::TMP::Loop<4, WrapperInitialize>::impl();
 
     // Start the I2C interface
+    // For an Arduino Uno this entails: A4 - SDA, A5 - SCL
     Wire.begin();
 
     // Use 12h-Mode.
