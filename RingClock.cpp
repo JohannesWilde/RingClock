@@ -844,7 +844,7 @@ void loop()
     }
 
 #if PRINT_SERIAL_TIME
-    serialPrintTimeOfDay(timeOfDay);
+    serialPrintTimeOfDay(dataClock.timeOfDay);
 #endif
 
     delay(cycleDurationMs);
