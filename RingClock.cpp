@@ -325,12 +325,6 @@ static void serialPrintButton(char const * const name)
     }
 }
 
-enum class OperationalMode
-{
-    clock,
-    settings
-};
-
 enum class SettingsSelection
 {
     hours,
@@ -777,7 +771,6 @@ Helpers::AbstractState<DataClock> const & StateClockDisplay::process(DataClock &
     }
     else if (ButtonSettings::isDownLong())
     {
-        // operationalMode = OperationalMode::settings;
         data.timeOfDay = getTimeOfDayFromRTC(myRTC);
 
         data.updateDisplay = false;
