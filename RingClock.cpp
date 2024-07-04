@@ -11,7 +11,8 @@ Clock display using an DS3231 RTC and a NeoPixel RGBW ring.
 #include "ArduinoDrivers/buttonTimed.hpp"
 #include "ArduinoDrivers/simplePinAvr.hpp"
 
-#include "helpers/crc16.hpp"
+#include "eeprom.hpp"
+
 #include "helpers/tmpLoop.hpp"
 
 #include <Adafruit_NeoPixel.h>
@@ -519,47 +520,9 @@ struct BackupValues
     }
 };
 
-namespace Eeprom
-{
+static Eeprom::Address constexpr backupValuesAddress = 0;
+static_assert(Eeprom::fitsInEeprom<BackupValues, backupValuesAddress>());
 
-typedef size_t Address;
-
-namespace Addresses
-{
-
-static Address constexpr backupValues = 0;
-
-static_assert(E2END >= (backupValues + sizeof(BackupValues) + 2 /* CRC */ - 1 /* index */));
-
-} // namespace Addresses
-
-
-void writeWithCrc(void const * const data, size_t const byteCount, Address const eepromAddress)
-{
-    Crc16Ibm3740 crc;
-    crc.process(static_cast<uint8_t const *>(data), byteCount);
-    uint16_t const crcValue = crc.get();
-
-    eeprom_write_block(data, (void *)(eepromAddress), byteCount);
-    eeprom_write_block(&crcValue, (void *)(eepromAddress + byteCount), 2);
-}
-
-
-bool readWithCrc(void * const data, size_t const byteCount, Address const eepromAddress)
-{
-    uint16_t crcValue = 0xffff;
-
-    eeprom_read_block(data, (void const *)(eepromAddress), byteCount);
-    eeprom_read_block(&crcValue, (void const *)(eepromAddress + byteCount), 2);
-
-    Crc16Ibm3740 crc;
-    crc.process(static_cast<uint8_t const *>(data), byteCount);
-
-    return (crc.get() == crcValue);
-}
-
-
-} // namespace Eeprom
 
 // Static variables and instances.
 
@@ -655,7 +618,7 @@ void setup()
 
     // Todo: save and load settings from eeprom
     BackupValues backupValues(colorsSettings);
-    bool const readBack = Eeprom::readWithCrc(&backupValues, sizeof(BackupValues), Eeprom::Addresses::backupValues);
+    bool const readBack = Eeprom::readWithCrc(&backupValues, sizeof(BackupValues), backupValuesAddress);
     if (readBack)
     {
         colorsSettings = backupValues.colorsSettings;
@@ -803,7 +766,7 @@ void loop()
         else if (Settings::ButtonSelectOrExit::isDownLong())
         {
             BackupValues const backupValues(colorsSettings);
-            Eeprom::writeWithCrc(&backupValues, sizeof(BackupValues), Eeprom::Addresses::backupValues);
+            Eeprom::writeWithCrc(&backupValues, sizeof(BackupValues), backupValuesAddress);
 
             operationalMode = OperationalMode::clock;
 
