@@ -587,6 +587,30 @@ struct WrapperUpdate
     }
 };
 
+template<uint8_t Index>
+struct WrapperCountIsDown
+{
+    static void impl(uint8_t & count)
+    {
+        if (Buttons<Index>::isDown())
+        {
+            ++count;
+        }
+    }
+};
+
+uint8_t getButtonsAreDown()
+{
+    uint8_t count = 0;
+    Helpers::TMP::Loop<4, WrapperCountIsDown, uint8_t &>::impl(count);
+    return count;
+};
+
+
+// Statemachine classes and "static const virtual" instances.
+
+// forward declaration
+struct DataClock;
 
 class SettingsClockDisplay
 {
@@ -601,17 +625,28 @@ private:
     bool modeChangeButtonWasUpOnceInThisMode = true;
 };
 
+class SettingsModify
+{
+private:
+    friend class StateClockSettings;
+    friend class StateModifyValue;
+    friend class StateModifyBrightness;
+    friend class StateModifyColor;
+
+    SettingsSelection settingsSelection = SettingsSelection::hours;
+    uint8_t longPressDurationAccumulation = 0;
+};
+
 class SettingsClockSettings
 {
 private:
     friend class StateClockSettings;
 
-    SettingsSelection settingsSelection = SettingsSelection::hours;
-    SettingsType settingsType = SettingsType::value;
+    Helpers::Statemachine<DataClock> statemachineModify{Helpers::Statemachine<DataClock>::noopState};
 
     bool modeChangeButtonWasUpOnceInThisMode = true;
 
-    uint8_t longPressDurationAccumulation = 0;
+    SettingsModify settingsModify;
 };
 
 struct DataClock
@@ -624,8 +659,6 @@ struct DataClock
     SettingsClockDisplay settingsClockDisplay;
     SettingsClockSettings settingsClockSettings;
 }; // namespace Common
-
-static DataClock dataClock;
 
 
 class StateClockDisplay : public Helpers::AbstractState<DataClock>
@@ -662,15 +695,31 @@ public:
     typedef ButtonBottom ButtonDown;
     typedef ButtonLeft ButtonBrightnessOrColor;
 
+    void init(DataClock & data) const override;
+
+    AbstractState const & process(DataClock & data) const override;
+
+    void deinit(DataClock & data) const override
+    {
+        // intentionally empty
+    }
+
+protected:
+    static SettingsModify & getSettingsModify(DataClock & data)
+    {
+        return data.settingsClockSettings.settingsModify;
+    }
+};
+static StateClockSettings stateClockSettings;
+
+
+class StateModifyValue : public StateClockSettings
+{
+public:
+
     void init(DataClock & data) const override
     {
-        data.settingsClockSettings.settingsSelection = SettingsSelection::hours;
-        data.settingsClockSettings.settingsType = SettingsType::value;
-
-        data.settingsClockSettings.modeChangeButtonWasUpOnceInThisMode = false;
-        data.settingsClockSettings.longPressDurationAccumulation = 0;
-
-        data.subseconds = 0;
+        getSettingsModify(data).longPressDurationAccumulation = 0;
     }
 
     AbstractState const & process(DataClock & data) const override;
@@ -680,9 +729,52 @@ public:
         // intentionally empty
     }
 };
-static StateClockSettings stateClockSettings;
+static StateModifyValue stateModifyValue;
 
+
+class StateModifyBrightness : public StateClockSettings
+{
+public:
+
+    void init(DataClock & data) const override
+    {
+        getSettingsModify(data).longPressDurationAccumulation = 0;
+    }
+
+    AbstractState const & process(DataClock & data) const override;
+
+    void deinit(DataClock & data) const override
+    {
+        // intentionally empty
+    }
+};
+static StateModifyBrightness stateModifyBrightness;
+
+
+class StateModifyColor : public StateClockSettings
+{
+public:
+
+    void init(DataClock & data) const override
+    {
+        getSettingsModify(data).longPressDurationAccumulation = 0;
+    }
+
+    AbstractState const & process(DataClock & data) const override;
+
+    void deinit(DataClock & data) const override
+    {
+        // intentionally empty
+    }
+};
+static StateModifyColor stateModifyColor;
+
+
+// Statemachine instance data.
+
+static DataClock dataClock;
 static Helpers::Statemachine<DataClock> statemachine(stateClockDisplay);
+
 
 // setup() and loop() functionality.
 
@@ -739,6 +831,9 @@ void loop()
     serialPrintButton<ButtonLeft>("ButtonLeft");
 #endif
 
+    // Assume update to always be necessary - state must opt-out explicitely.
+    dataClock.updateDisplay = true;
+
     statemachine.process(dataClock);
 
     if (dataClock.updateDisplay)
@@ -759,8 +854,6 @@ void loop()
 Helpers::AbstractState<DataClock> const & StateClockDisplay::process(DataClock & data) const
 {
     Helpers::AbstractState<DataClock> const * nextState = this;
-
-    data.updateDisplay = true;
 
     if (!data.settingsClockDisplay.modeChangeButtonWasUpOnceInThisMode)
     {
@@ -801,20 +894,19 @@ Helpers::AbstractState<DataClock> const & StateClockDisplay::process(DataClock &
     return *nextState;
 }
 
+void StateClockSettings::init(DataClock & data) const
+{
+    data.settingsClockSettings.settingsModify.settingsSelection = SettingsSelection::hours;
+    data.settingsClockSettings.statemachineModify.reset(data, stateModifyValue);
+
+    data.settingsClockSettings.modeChangeButtonWasUpOnceInThisMode = false;
+
+    data.subseconds = 0;
+}
+
 Helpers::AbstractState<DataClock> const & StateClockSettings::process(DataClock & data) const
 {
     Helpers::AbstractState<DataClock> const * nextState = this;
-
-    data.updateDisplay = true;
-
-    if (StateClockSettings::ButtonBrightnessOrColor::isDownLong())
-    {
-        data.settingsClockSettings.settingsType = SettingsType::brightness;
-    }
-    else
-    {
-        // do nothing
-    }
 
     if (!data.settingsClockSettings.modeChangeButtonWasUpOnceInThisMode)
     {
@@ -823,7 +915,7 @@ Helpers::AbstractState<DataClock> const & StateClockSettings::process(DataClock 
             data.settingsClockSettings.modeChangeButtonWasUpOnceInThisMode = true;
         }
     }
-    else if (StateClockSettings::ButtonSelectOrExit::isDownLong())
+    else if (StateClockSettings::ButtonSelectOrExit::isDownLong() && (1 == getButtonsAreDown()))
     {
         BackupValues const backupValues(data.colorsSettings);
         Eeprom::writeWithCrc(&backupValues, sizeof(BackupValues), backupValuesAddress);
@@ -844,165 +936,221 @@ Helpers::AbstractState<DataClock> const & StateClockSettings::process(DataClock 
 
         data.updateDisplay = false;
     }
-    else if (StateClockSettings::ButtonSelectOrExit::pressed())
+    else
     {
-        data.settingsClockSettings.settingsSelection = nextSettingsSelection(data.settingsClockSettings.settingsSelection);
-        data.settingsClockSettings.longPressDurationAccumulation = 0;
+        data.settingsClockSettings.statemachineModify.process(data);
     }
-    else if (StateClockSettings::ButtonUp::isDown() && StateClockSettings::ButtonDown::isDown())
+
+    return *nextState;
+}
+
+Helpers::AbstractState<DataClock> const & StateModifyValue::process(DataClock & data) const
+{
+    Helpers::AbstractState<DataClock> const * nextState = this;
+
+    uint8_t const numberOfButtonsAreDown = getButtonsAreDown();
+
+    if (1 < numberOfButtonsAreDown)
     {
-        // pressing both resets rampup
-        data.settingsClockSettings.longPressDurationAccumulation = 0;
+        // In this mode at most  1 button is supposed to be pressed at the same time.
+        // Reset accumulation counter but do nothing else if more than 1 buttons are pressed.
+        getSettingsModify(data).longPressDurationAccumulation = 0;
     }
-    else if (StateClockSettings::ButtonBrightnessOrColor::isDownShort())
+    else
     {
-        // reset longPressDuration once this button is pressed
-        data.settingsClockSettings.longPressDurationAccumulation = 0;
-    }
-    else if (StateClockSettings::ButtonBrightnessOrColor::releasedAfterShort())
-    {
-        switch (data.settingsClockSettings.settingsType)
+        if (0 == numberOfButtonsAreDown)
         {
-        case SettingsType::value:
-        {
-            data.settingsClockSettings.settingsType = SettingsType::color;
-            break;
+            getSettingsModify(data).longPressDurationAccumulation = 0;
         }
-        case SettingsType::brightness:
+        else if (StateClockSettings::ButtonBrightnessOrColor::isDownLong())
         {
-            // this code should be unreachable
-            break;
+            nextState = &stateModifyBrightness;
         }
-        case SettingsType::color:
+        else if (StateClockSettings::ButtonSelectOrExit::pressed())
         {
-            data.settingsClockSettings.settingsType = SettingsType::value;
-            break;
+            getSettingsModify(data).settingsSelection = nextSettingsSelection(getSettingsModify(data).settingsSelection);
         }
-        };
-    }
-    else if (StateClockSettings::ButtonBrightnessOrColor::releasedAfterLong())
-    {
-        data.settingsClockSettings.settingsType = SettingsType::value;
-        data.settingsClockSettings.longPressDurationAccumulation = 0;
-    }
-    else if (StateClockSettings::ButtonUp::isDownLong())
-    {
-        data.settingsClockSettings.longPressDurationAccumulation = incrementUint8Capped(data.settingsClockSettings.longPressDurationAccumulation);
-        if (longPressDurationActive(data.settingsClockSettings.longPressDurationAccumulation))
+        else if (StateClockSettings::ButtonUp::isDownLong())
         {
-            switch (data.settingsClockSettings.settingsType)
+            getSettingsModify(data).longPressDurationAccumulation = incrementUint8Capped(getSettingsModify(data).longPressDurationAccumulation);
+            if (longPressDurationActive(getSettingsModify(data).longPressDurationAccumulation))
             {
-            case SettingsType::value:
-            {
-                incrementTimeOfDayComponent(data.timeOfDay, data.settingsClockSettings.settingsSelection);
-                break;
+                incrementTimeOfDayComponent(data.timeOfDay, getSettingsModify(data).settingsSelection);
             }
-            case SettingsType::brightness:
+        }
+        else if (StateClockSettings::ButtonDown::isDownLong())
+        {
+            getSettingsModify(data).longPressDurationAccumulation = incrementUint8Capped(getSettingsModify(data).longPressDurationAccumulation);
+            if (longPressDurationActive(getSettingsModify(data).longPressDurationAccumulation))
+            {
+                decrementTimeOfDayComponent(data.timeOfDay, getSettingsModify(data).settingsSelection);
+            }
+        }
+
+        if (StateClockSettings::ButtonBrightnessOrColor::releasedAfterShort())
+        {
+            nextState = &stateModifyColor;
+        }
+
+        if (StateClockSettings::ButtonUp::releasedAfterShort())
+        {
+            incrementTimeOfDayComponent(data.timeOfDay, getSettingsModify(data).settingsSelection);
+        }
+
+        if (StateClockSettings::ButtonDown::releasedAfterShort())
+        {
+            decrementTimeOfDayComponent(data.timeOfDay, getSettingsModify(data).settingsSelection);
+        }
+    }
+
+    return *nextState;
+}
+
+Helpers::AbstractState<DataClock> const & StateModifyBrightness::process(DataClock & data) const
+{
+    Helpers::AbstractState<DataClock> const * nextState = this;
+
+    uint8_t const numberOfButtonsAreDown = getButtonsAreDown();
+
+    if (!StateClockSettings::ButtonBrightnessOrColor::isDownLong())
+    {
+        // As long as brightness is to be modified, ButtonBrightnessOrColor needs to stay pressed down.
+        // Reset accumulation counter but do nothing else if another button is still pressed.
+        getSettingsModify(data).longPressDurationAccumulation = 0;
+
+        // In order to return no other button must be pressed.
+        if (0 == numberOfButtonsAreDown)
+        {
+            nextState = &stateModifyValue;
+        }
+    }
+    else
+    {
+        if (1 == numberOfButtonsAreDown)
+        {
+            // All but ButtonBrightnessOrColor released.
+            getSettingsModify(data).longPressDurationAccumulation = 0;
+        }
+        else if (StateClockSettings::ButtonSelectOrExit::pressed())
+        {
+            getSettingsModify(data).settingsSelection = nextSettingsSelection(getSettingsModify(data).settingsSelection);
+        }
+        else if (StateClockSettings::ButtonUp::isDownLong())
+        {
+            getSettingsModify(data).longPressDurationAccumulation = incrementUint8Capped(getSettingsModify(data).longPressDurationAccumulation);
+            if (longPressDurationActive(getSettingsModify(data).longPressDurationAccumulation))
             {
                 // allow uint8_t overflow
-                data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).brightness += 2;
-                break;
+                data.colorsSettings.at(displayComponentFrom(getSettingsModify(data).settingsSelection)).brightness += 2;
             }
-            case SettingsType::color:
+        }
+        else if (StateClockSettings::ButtonDown::isDownLong())
+        {
+            getSettingsModify(data).longPressDurationAccumulation = incrementUint8Capped(getSettingsModify(data).longPressDurationAccumulation);
+            if (longPressDurationActive(getSettingsModify(data).longPressDurationAccumulation))
             {
-                SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).selectableColor;
+                // allow uint8_t underflow
+                data.colorsSettings.at(displayComponentFrom(getSettingsModify(data).settingsSelection)).brightness -= 2;
+            }
+        }
+
+        if (StateClockSettings::ButtonUp::releasedAfterShort())
+        {
+            // allow uint8_t overflow
+            data.colorsSettings.at(displayComponentFrom(getSettingsModify(data).settingsSelection)).brightness += 1;
+        }
+
+        if (StateClockSettings::ButtonDown::releasedAfterShort())
+        {
+            // allow uint8_t underflow
+            data.colorsSettings.at(displayComponentFrom(getSettingsModify(data).settingsSelection)).brightness -= 1;
+        }
+    }
+
+    return *nextState;
+}
+
+Helpers::AbstractState<DataClock> const & StateModifyColor::process(DataClock & data) const
+{
+    Helpers::AbstractState<DataClock> const * nextState = this;
+
+    uint8_t const numberOfButtonsAreDown = getButtonsAreDown();
+
+    if (1 < numberOfButtonsAreDown)
+    {
+        // In this mode at most 1 button is supposed to be pressed at the same time.
+        // Reset accumulation counter but do nothing else if more than 1 buttons are pressed.
+        getSettingsModify(data).longPressDurationAccumulation = 0;
+    }
+    else
+    {
+        if (0 == numberOfButtonsAreDown)
+        {
+            getSettingsModify(data).longPressDurationAccumulation = 0;
+        }
+        else if (StateClockSettings::ButtonBrightnessOrColor::isDownLong())
+        {
+            nextState = &stateModifyBrightness;
+        }
+        else if (StateClockSettings::ButtonSelectOrExit::pressed())
+        {
+            getSettingsModify(data).settingsSelection = nextSettingsSelection(getSettingsModify(data).settingsSelection);
+        }
+        else if (StateClockSettings::ButtonUp::isDownLong())
+        {
+            getSettingsModify(data).longPressDurationAccumulation = incrementUint8Capped(getSettingsModify(data).longPressDurationAccumulation);
+            if (longPressDurationActive(getSettingsModify(data).longPressDurationAccumulation))
+            {
+                SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(getSettingsModify(data).settingsSelection)).selectableColor;
                 SelectableColor newColor = nextSelectableColor(colorToModify);
                 while (data.colorsSettings.colorConflicts(newColor))
                 {
                     newColor = nextSelectableColor(newColor);
                 }
                 colorToModify = newColor;
-                break;
-            }
             }
         }
-    }
-    else if (StateClockSettings::ButtonDown::isDownLong())
-    {
-        data.settingsClockSettings.longPressDurationAccumulation = incrementUint8Capped(data.settingsClockSettings.longPressDurationAccumulation);
-        if (longPressDurationActive(data.settingsClockSettings.longPressDurationAccumulation))
+        else if (StateClockSettings::ButtonDown::isDownLong())
         {
-            switch (data.settingsClockSettings.settingsType)
+            getSettingsModify(data).longPressDurationAccumulation = incrementUint8Capped(getSettingsModify(data).longPressDurationAccumulation);
+            if (longPressDurationActive(getSettingsModify(data).longPressDurationAccumulation))
             {
-            case SettingsType::value:
-            {
-                decrementTimeOfDayComponent(data.timeOfDay, data.settingsClockSettings.settingsSelection);
-                break;
-            }
-            case SettingsType::brightness:
-            {
-                // allow uint8_t overflow
-                data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).brightness -= 2;
-                break;
-            }
-            case SettingsType::color:
-            {
-                SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).selectableColor;
+                SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(getSettingsModify(data).settingsSelection)).selectableColor;
                 SelectableColor newColor = previousSelectableColor(colorToModify);
                 while (data.colorsSettings.colorConflicts(newColor))
                 {
                     newColor = previousSelectableColor(newColor);
                 }
                 colorToModify = newColor;
-                break;
-            }
             }
         }
-    }
-    else if (StateClockSettings::ButtonUp::releasedAfterShort())
-    {
-        switch (data.settingsClockSettings.settingsType)
+
+
+        if (StateClockSettings::ButtonBrightnessOrColor::releasedAfterShort())
         {
-        case SettingsType::value:
-        {
-            incrementTimeOfDayComponent(data.timeOfDay, data.settingsClockSettings.settingsSelection);
-            break;
+            nextState = &stateModifyValue;
         }
-        case SettingsType::brightness:
+
+        if (StateClockSettings::ButtonUp::releasedAfterShort())
         {
-            // allow uint8_t overflow
-            data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).brightness += 1;
-            break;
-        }
-        case SettingsType::color:
-        {
-            SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).selectableColor;
+            SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(getSettingsModify(data).settingsSelection)).selectableColor;
             SelectableColor newColor = nextSelectableColor(colorToModify);
             while (data.colorsSettings.colorConflicts(newColor))
             {
                 newColor = nextSelectableColor(newColor);
             }
             colorToModify = newColor;
-            break;
         }
-        }
-    }
-    else if (StateClockSettings::ButtonDown::releasedAfterShort())
-    {
-        switch (data.settingsClockSettings.settingsType)
+
+        if (StateClockSettings::ButtonDown::releasedAfterShort())
         {
-        case SettingsType::value:
-        {
-            decrementTimeOfDayComponent(data.timeOfDay, data.settingsClockSettings.settingsSelection);
-            break;
-        }
-        case SettingsType::brightness:
-        {
-            // allow uint8_t overflow
-            data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).brightness -= 1;
-            break;
-        }
-        case SettingsType::color:
-        {
-            SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(data.settingsClockSettings.settingsSelection)).selectableColor;
+            SelectableColor & colorToModify = data.colorsSettings.at(displayComponentFrom(getSettingsModify(data).settingsSelection)).selectableColor;
             SelectableColor newColor = previousSelectableColor(colorToModify);
             while (data.colorsSettings.colorConflicts(newColor))
             {
                 newColor = previousSelectableColor(newColor);
             }
             colorToModify = newColor;
-            break;
-        }
         }
     }
 
